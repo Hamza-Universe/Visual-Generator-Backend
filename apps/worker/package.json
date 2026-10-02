@@ -1,0 +1,28 @@
+{
+  "name": "@app/worker",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@app/db": "workspace:*",
+    "@app/schema": "workspace:*",
+    "@app/storage": "workspace:*",
+    "@remotion/bundler": "^4.0.531",
+    "@remotion/renderer": "^4.0.531",
+    "bullmq": "latest",
+    "drizzle-orm": "latest",
+    "ioredis": "^6.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "^4.0.531",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0"
+  }
+}

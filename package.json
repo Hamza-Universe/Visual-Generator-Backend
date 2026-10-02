@@ -1,0 +1,36 @@
+{
+  "name": "visual-diagram-gen",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "dev:api": "pnpm --filter @app/api dev",
+    "dev:worker": "pnpm --filter @app/worker dev",
+    "dev:all": "pnpm --parallel --filter @app/api --filter @app/worker dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r build && pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "db:generate": "pnpm --filter @app/db db:generate",
+    "db:migrate": "pnpm --filter @app/db db:migrate",
+    "db:seed": "pnpm --filter @app/db db:seed",
+    "dev:mcp": "pnpm --filter @app/mcp dev",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@types/node": "latest",
+    "@typescript-eslint/eslint-plugin": "latest",
+    "@typescript-eslint/parser": "latest",
+    "eslint": "latest",
+    "eslint-config-prettier": "latest",
+    "prettier": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vitest": "latest"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.5"
+  }
+}

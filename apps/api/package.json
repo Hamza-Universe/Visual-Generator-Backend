@@ -1,0 +1,28 @@
+{
+  "name": "@app/api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@app/db": "workspace:*",
+    "@app/schema": "workspace:*",
+    "@app/storage": "workspace:*",
+    "@google/genai": "latest",
+    "@fastify/cors": "latest",
+    "@fastify/multipart": "latest",
+    "ajv": "latest",
+    "bullmq": "latest",
+    "drizzle-orm": "latest",
+    "fastify": "latest",
+    "ioredis": "^6.0.0",
+    "nodemailer": "^10.0.13",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.2"
+  }
+}

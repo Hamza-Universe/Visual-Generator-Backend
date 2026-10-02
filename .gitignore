@@ -1,0 +1,10 @@
+node_modules/
+dist/
+storage/
+.env
+*.log
+
+.env
+.env.*.local
+spec.md
+spec_part_2.md
