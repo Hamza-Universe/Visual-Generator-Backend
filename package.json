@@ -7,7 +7,7 @@
     "dev:api": "pnpm --filter @app/api dev",
     "dev:worker": "pnpm --filter @app/worker dev",
     "dev:all": "pnpm --parallel --filter @app/api --filter @app/worker dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @app/schema build && pnpm --filter @app/db build && pnpm -r build",
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run",

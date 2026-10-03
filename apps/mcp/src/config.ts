@@ -1,7 +1,7 @@
 import { z } from 'zod';
 const EnvSchema = z.object({
-  API_BASE_URL: z.string().url().default('http://localhost:3001'),
-  MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
+  API_BASE_URL: z.string().url(), // Remove .default() - require it
+  MCP_TRANSPORT: z.enum(['stdio', 'http']).default('http'), // Change from 'stdio' to 'http'
   MCP_API_TOKEN: z.string().min(1),
 });
 export const loadConfig = () => {
