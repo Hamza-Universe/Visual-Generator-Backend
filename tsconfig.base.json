@@ -10,6 +10,14 @@
     "skipLibCheck": true,
     "declaration": true,
     "types": ["node"],
-    "outDir": "dist"
+    "outDir": "dist",
+    "paths": {
+      "@app/db": ["packages/db/src/index.ts"],
+      "@app/schema": ["packages/schema/src/index.ts"],
+      "@app/storage": ["packages/storage/src/index.ts"],
+      "@app/api": ["apps/api/src/index.ts"],
+      "@app/worker": ["apps/worker/src/index.ts"],
+      "@app/mcp": ["apps/mcp/src/index.ts"]
+    }
   }
 }
