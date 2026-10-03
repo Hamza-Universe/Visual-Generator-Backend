@@ -1,4 +1,4 @@
-# Visual Diagram Gen
+# Visual Diagram Generator
 
 Backend for turning narrated audio or video into validated animation specifications and rendered explainer videos.
 
