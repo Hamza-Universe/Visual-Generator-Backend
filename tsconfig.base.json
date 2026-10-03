@@ -10,7 +10,6 @@
     "skipLibCheck": true,
     "declaration": true,
     "types": ["node"],
-    "outDir": "dist",
     "paths": {
       "@app/db": ["packages/db/src/index.ts"],
       "@app/schema": ["packages/schema/src/index.ts"],
