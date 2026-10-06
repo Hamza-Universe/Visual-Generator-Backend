@@ -2,7 +2,7 @@ import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'bullmq';
 import { assets, components, createDb, projects, renders } from '@app/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { LocalStorage } from '@app/storage';
 import { VideoSpecSchema, type Scene } from '@app/schema';
 import { renderProject, type RenderInputAsset } from './renderer.js';
@@ -73,7 +73,7 @@ export const worker = new Worker<{ renderId: string }>(
       const assetRows = await db
         .select()
         .from(assets)
-        .where(eq(assets.userId, project.userId));
+        .where(and(eq(assets.userId, project.userId), eq(assets.projectId, render.projectId)));
       const byId = new Map(assetRows.map((asset) => [asset.id, asset]));
       const renderAssets: RenderInputAsset[] = [];
       for (const id of assetIds) {
@@ -135,6 +135,7 @@ export const worker = new Worker<{ renderId: string }>(
           mimeType: 'video/mp4',
           sizeBytes: outputStat.size,
           userId: project.userId,
+          projectId: render.projectId,
         })
         .returning();
       await db
@@ -158,7 +159,17 @@ export const worker = new Worker<{ renderId: string }>(
       await rm(tempPath, { force: true });
     }
   },
-  { connection: { host: redis.hostname, port: Number(redis.port || 6379) } },
+  {
+    connection: {
+      host: redis.hostname,
+      port: Number(redis.port || 6379),
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times) => {
+        if (times > 3) return null;
+        return Math.min(times * 200, 2000);
+      },
+    },
+  },
 );
 
 worker.on('failed', (job, error) =>

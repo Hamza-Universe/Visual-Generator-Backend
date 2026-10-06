@@ -28,15 +28,25 @@ export const registerAssetRoutes = (
       let filePart: Awaited<ReturnType<typeof request.file>>;
       let fileData: Buffer | undefined;
       let kind = '';
+      let projectId = '';
       for await (const part of parts) {
         if (part.type === 'file') {
           filePart = part;
           fileData = await part.toBuffer();
         }
         else if (part.fieldname === 'kind') kind = String(part.value);
+        else if (part.fieldname === 'projectId') projectId = String(part.value);
       }
       if (!filePart || !kinds.includes(kind as (typeof kinds)[number]))
         throw new AppError('BAD_INPUT', 'file and valid kind are required');
+      if (!projectId)
+        throw new AppError('BAD_INPUT', 'projectId is required');
+      // Verify project exists and belongs to user
+      const [project] = await db.select({ id: projects.id }).from(projects).where(
+        and(eq(projects.id, projectId), eq(projects.userId, request.user!.id)),
+      );
+      if (!project)
+        throw new AppError('NOT_FOUND', 'Project not found', 404);
       if (
         !allowedMimeTypes[kind as (typeof kinds)[number]].test(
           filePart.mimetype,
@@ -66,6 +76,7 @@ export const registerAssetRoutes = (
             mimeType: filePart.mimetype,
             sizeBytes: data.byteLength,
             userId: request.user!.id,
+            projectId,
           })
           .returning();
       } catch (error) {
@@ -93,10 +104,18 @@ export const registerAssetRoutes = (
   app.post('/assets/:id/share-url', async (request, reply) => {
     try {
       const assetId = (request.params as { id: string }).id;
-      const [asset] = await db.select({ id: assets.id }).from(assets).where(
+      const [asset] = await db.select({ id: assets.id, projectId: assets.projectId }).from(assets).where(
         and(eq(assets.id, assetId), eq(assets.userId, request.user!.id)),
       );
       if (!asset) throw new AppError('NOT_FOUND', 'Asset not found', 404);
+      if (!asset.projectId)
+        throw new AppError('BAD_INPUT', 'Asset is not associated with a project', 400);
+      // Verify project ownership
+      const [project] = await db.select({ id: projects.id }).from(projects).where(
+        and(eq(projects.id, asset.projectId), eq(projects.userId, request.user!.id)),
+      );
+      if (!project)
+        throw new AppError('NOT_FOUND', 'Project not found', 404);
       const token = randomBytes(32).toString('base64url');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
       await db.insert(assetShareLinks).values({
@@ -138,25 +157,30 @@ export const registerAssetRoutes = (
   });
   app.get('/assets', async (request, reply) => {
     const kind = (request.query as { kind?: string }).kind;
+    const projectId = (request.query as { projectId?: string }).projectId;
+    const conditions = [eq(assets.userId, request.user!.id)];
+    if (projectId) conditions.push(eq(assets.projectId, projectId));
     const rows = await db
       .select()
       .from(assets)
-      .where(eq(assets.userId, request.user!.id))
+      .where(and(...conditions))
       .orderBy(desc(assets.createdAt));
     return reply.send({
       items: kind ? rows.filter((row) => row.kind === kind) : rows,
     });
   });
   app.get('/assets/:id/file', async (request, reply) => {
+    const assetId = (request.params as { id: string }).id;
+    const projectId = (request.query as { projectId?: string }).projectId;
+    const conditions = [
+      eq(assets.id, assetId),
+      eq(assets.userId, request.user!.id),
+    ];
+    if (projectId) conditions.push(eq(assets.projectId, projectId));
     const [row] = await db
       .select()
       .from(assets)
-      .where(
-        and(
-          eq(assets.id, (request.params as { id: string }).id),
-          eq(assets.userId, request.user!.id),
-        ),
-      );
+      .where(and(...conditions));
     if (!row)
       return sendError(
         reply,
@@ -165,20 +189,23 @@ export const registerAssetRoutes = (
     return reply.type(row.mimeType).send(storage.stream(row.storageKey));
   });
   app.delete('/assets/:id', async (request, reply) => {
+    const assetId = (request.params as { id: string }).id;
+    const projectId = (request.query as { projectId?: string }).projectId;
+    const conditions = [
+      eq(assets.id, assetId),
+      eq(assets.userId, request.user!.id),
+    ];
+    if (projectId) conditions.push(eq(assets.projectId, projectId));
     const [row] = await db
       .select()
       .from(assets)
-      .where(
-        and(
-          eq(assets.id, (request.params as { id: string }).id),
-          eq(assets.userId, request.user!.id),
-        ),
-      );
+      .where(and(...conditions));
     if (!row)
       return sendError(
         reply,
         new AppError('NOT_FOUND', 'Asset not found', 404),
       );
+    // Check if asset is referenced by any project spec
     const ownedProjects = await db
       .select({ spec: projects.spec })
       .from(projects)

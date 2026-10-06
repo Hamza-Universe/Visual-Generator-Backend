@@ -46,7 +46,7 @@ export const registerRenderRoutes = (
       const assetRows = await db
         .select({ id: assets.id, kind: assets.kind })
         .from(assets)
-        .where(eq(assets.userId, userId));
+        .where(and(eq(assets.userId, userId), eq(assets.projectId, id)));
       const issues = validateSpec(spec, {
         registry,
         assetExists: (assetId) =>

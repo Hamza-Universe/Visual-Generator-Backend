@@ -65,8 +65,13 @@ export const components = pgTable('components', {
   colorProps: text('color_props').array().default([]).notNull(),
   refProps: text('ref_props').array().default([]).notNull(),
   assetProps: text('asset_props').array().default([]).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  isPublic: text('is_public').default('false').notNull(),
   ...timestamps,
-});
+}, (table) => ({
+  userIndex: index('components_user_id_idx').on(table.userId),
+  publicIndex: index('components_is_public_idx').on(table.isPublic),
+}));
 export const assets = pgTable(
   'assets',
   {
@@ -78,9 +83,13 @@ export const assets = pgTable(
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     durationSeconds: real('duration_seconds'),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     createdAt: timestamps.createdAt,
   },
-  (table) => ({ userIndex: index('assets_user_id_idx').on(table.userId) }),
+  (table) => ({
+    userIndex: index('assets_user_id_idx').on(table.userId),
+    projectIndex: index('assets_project_id_idx').on(table.projectId),
+  }),
 );
 export const transcripts = pgTable(
   'transcripts',
