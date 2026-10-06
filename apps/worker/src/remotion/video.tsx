@@ -1,6 +1,5 @@
 import {
   AbsoluteFill,
-  Audio,
   Img,
   OffthreadVideo,
   staticFile,
@@ -8,6 +7,7 @@ import {
   useVideoConfig,
   interpolate,
   Easing,
+  Html5Audio,
 } from 'remotion';
 import type { CSSProperties, ReactNode } from 'react';
 import type { Scene, VideoSpec } from '@app/schema';
@@ -390,7 +390,7 @@ export const VideoComposition = ({ spec, assets }: Props) => {
       }}
     >
       <Background spec={spec} assets={assets} />
-      {audio ? <Audio src={staticFile(audio.fileName)} /> : null}
+      {audio ? <Html5Audio src={staticFile(audio.fileName)} /> : null}
       {spec.scenes.map((scene) => (
         <SceneLayer
           key={scene.id}

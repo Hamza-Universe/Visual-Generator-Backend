@@ -14,16 +14,19 @@ const context = async (
   db: Database,
   maxComponents?: number | null,
   userId?: string,
+  projectId?: string,
 ) => {
   const rows = await db.select().from(components);
   const registry = new Map(
     rows.map((row) => [row.name, row as unknown as RegistryComponent]),
   );
-  const assetRows = userId
+  const assetConditions = userId ? [eq(assets.userId, userId)] : [];
+  if (projectId) assetConditions.push(eq(assets.projectId, projectId));
+  const assetRows = assetConditions.length
     ? await db
         .select({ id: assets.id, kind: assets.kind })
         .from(assets)
-        .where(eq(assets.userId, userId))
+        .where(and(...assetConditions))
     : await db.select({ id: assets.id, kind: assets.kind }).from(assets);
   return {
     registry,
@@ -37,13 +40,14 @@ const parseSpec = async (
   input: unknown,
   maxComponents?: number | null,
   userId?: string,
+  projectId?: string,
 ) => {
   const parsed = VideoSpecSchema.safeParse(input);
   if (!parsed.success)
     throw new AppError('BAD_INPUT', 'Invalid spec', 400, parsed.error.issues);
   const issues = validateSpec(
     parsed.data,
-    await context(db, maxComponents, userId),
+    await context(db, maxComponents, userId, projectId),
   );
   if (issues.length)
     throw new AppError(
@@ -99,11 +103,11 @@ export const registerProjectRoutes = (app: FastifyInstance, db: Database) => {
     const transcriptId = (request.query as { transcriptId?: string }).transcriptId;
     const [project] = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, request.user!.id)));
     if (!project) return sendError(reply, new AppError('NOT_FOUND', 'Project not found', 404));
-    const [transcript] = transcriptId ? await db.select({ transcript: transcripts }).from(transcripts).innerJoin(assets, eq(transcripts.assetId, assets.id)).where(and(eq(transcripts.id, transcriptId), eq(assets.userId, request.user!.id))) : [];
+    const [transcript] = transcriptId ? await db.select({ transcript: transcripts }).from(transcripts).innerJoin(assets, eq(transcripts.assetId, assets.id)).where(and(eq(transcripts.id, transcriptId), eq(assets.userId, request.user!.id), eq(assets.projectId, id))) : [];
     return reply.send({
       project: { id: project.id, name: project.name, spec: project.spec, maxComponents: project.maxComponents },
       components: await db.select().from(components).orderBy(desc(components.createdAt)),
-      assets: await db.select({ id: assets.id, kind: assets.kind, originalName: assets.originalName, mimeType: assets.mimeType, sizeBytes: assets.sizeBytes, durationSeconds: assets.durationSeconds }).from(assets).where(eq(assets.userId, request.user!.id)),
+      assets: await db.select({ id: assets.id, kind: assets.kind, originalName: assets.originalName, mimeType: assets.mimeType, sizeBytes: assets.sizeBytes, durationSeconds: assets.durationSeconds }).from(assets).where(and(eq(assets.userId, request.user!.id), eq(assets.projectId, id))),
       transcript: transcript?.transcript ?? null,
     });
   });
@@ -139,6 +143,7 @@ export const registerProjectRoutes = (app: FastifyInstance, db: Database) => {
           input.spec,
           existing.maxComponents,
           request.user!.id,
+          id,
         );
       const [row] = await db
         .update(projects)

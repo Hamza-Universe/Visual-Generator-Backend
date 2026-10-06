@@ -108,7 +108,7 @@ export class GeminiTranscriptionProvider implements TranscriptionProvider {
       if (media.state !== 'ACTIVE')
         throw new AppError('TRANSCRIPTION_FAILED', 'Gemini media processing timed out', 504);
       const response = await this.client.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.8-flash',
         contents: [
           {
             role: 'user',

@@ -6,7 +6,7 @@ const EnvSchema = z.object({
   STORAGE_DIR: z.string().min(1),
   GEMINI_API_KEY: z.string().optional().default(''),
   AI_PROVIDER: z.enum(['manual', 'gemini']).default('manual'),
-  AI_MODEL: z.string().optional().default('gemini-2.0-flash'),
+  AI_MODEL: z.string().optional().default('gemini-3.8-flash'),
   CORS_ORIGIN: z.string().min(1).default('http://localhost:5173'),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(500),
   API_BASE_URL: z.string().url().default('http://localhost:3001'),

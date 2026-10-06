@@ -15,10 +15,13 @@ export const registerTranscriptRoutes = (
   app.post('/assets/:id/transcribe', async (request, reply) => {
     try {
       const id = (request.params as { id: string }).id;
+      const projectId = (request.query as { projectId?: string }).projectId;
+      const conditions = [eq(assets.id, id), eq(assets.userId, request.user!.id)];
+      if (projectId) conditions.push(eq(assets.projectId, projectId));
       const [asset] = await db
         .select()
         .from(assets)
-        .where(and(eq(assets.id, id), eq(assets.userId, request.user!.id)));
+        .where(and(...conditions));
       if (!asset || !['audio', 'video'].includes(asset.kind))
         throw new AppError('BAD_INPUT', 'Asset must be audio or video');
       const result = await provider.transcribe({
@@ -44,15 +47,14 @@ export const registerTranscriptRoutes = (
   app.post('/assets/:id/transcripts/import', async (request, reply) => {
     try {
       const assetId = (request.params as { id: string }).id;
-      const [asset] = await db.select({ id: assets.id }).from(assets).where(
-        and(eq(assets.id, assetId), eq(assets.userId, request.user!.id)),
+      const projectId = (request.query as { projectId?: string }).projectId;
+      const conditions = [eq(assets.id, assetId), eq(assets.userId, request.user!.id)];
+      if (projectId) conditions.push(eq(assets.projectId, projectId));
+      const [asset] = await db.select({ id: assets.id, kind: assets.kind }).from(assets).where(
+        and(...conditions),
       );
       if (!asset) throw new AppError('NOT_FOUND', 'Asset not found', 404);
-      const [media] = await db
-        .select({ kind: assets.kind })
-        .from(assets)
-        .where(eq(assets.id, assetId));
-      if (!media || !['audio', 'video'].includes(media.kind))
+      if (!['audio', 'video'].includes(asset.kind))
         throw new AppError(
           'BAD_INPUT',
           'Transcripts can only be attached to audio or video assets',
@@ -77,16 +79,17 @@ export const registerTranscriptRoutes = (
     }
   });
   app.get('/transcripts/:id', async (request, reply) => {
+    const projectId = (request.query as { projectId?: string }).projectId;
+    const conditions = [
+      eq(transcripts.id, (request.params as { id: string }).id),
+      eq(assets.userId, request.user!.id),
+    ];
+    if (projectId) conditions.push(eq(assets.projectId, projectId));
     const [row] = await db
       .select({ transcript: transcripts })
       .from(transcripts)
       .innerJoin(assets, eq(transcripts.assetId, assets.id))
-      .where(
-        and(
-          eq(transcripts.id, (request.params as { id: string }).id),
-          eq(assets.userId, request.user!.id),
-        ),
-      );
+      .where(and(...conditions));
     if (!row)
       return sendError(
         reply,
@@ -95,15 +98,16 @@ export const registerTranscriptRoutes = (
     return reply.send(row.transcript);
   });
   app.get('/assets/:id/transcripts', async (request, reply) => {
+    const projectId = (request.query as { projectId?: string }).projectId;
+    const conditions = [
+      eq(assets.id, (request.params as { id: string }).id),
+      eq(assets.userId, request.user!.id),
+    ];
+    if (projectId) conditions.push(eq(assets.projectId, projectId));
     const [asset] = await db
       .select({ id: assets.id })
       .from(assets)
-      .where(
-        and(
-          eq(assets.id, (request.params as { id: string }).id),
-          eq(assets.userId, request.user!.id),
-        ),
-      );
+      .where(and(...conditions));
     if (!asset)
       return sendError(
         reply,

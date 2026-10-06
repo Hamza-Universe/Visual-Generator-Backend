@@ -29,6 +29,20 @@
       "when": 1790867173599,
       "tag": "0003_sparkling_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791300000000,
+      "tag": "0004_add_project_id_to_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791228797998,
+      "tag": "0005_luxuriant_roland_deschain",
+      "breakpoints": true
     }
   ]
 }
