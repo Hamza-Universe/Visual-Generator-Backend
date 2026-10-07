@@ -1,6 +1,6 @@
 import { bundle } from '@remotion/bundler';
 import { getCompositions, renderMedia } from '@remotion/renderer';
-import type { VideoSpec } from '@app/schema';
+import { SceneDocumentSchema, type VideoSpec } from '@app/schema';
 import { resolveTimeline } from '@app/render';
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
@@ -11,13 +11,14 @@ import type { SceneCompositionProps } from './remotion/scene.js';
 export type RenderInputAsset = RenderAsset & { sourcePath: string };
 
 /**
- * Production render boundary (Stage 3B, Phase 13/17).
+ * Production render boundary (Stage 3E).
  *
- * Two paths temporarily coexist:
- *   - legacy `VideoSpec` → `renderProject` (production worker, untouched)
- *   - new `SceneDocument` → `renderSceneDocument` (frame-aware, verified here)
- * Migrating production from VideoSpec to SceneDocument belongs to the next
- * stage; nothing legacy is deleted or broken here.
+ * Two paths coexist:
+ *   - legacy `VideoSpec` → `renderProject` → `VisualDiagram` composition
+ *   - new `SceneDocument` snapshot → `renderSceneDocument` →
+ *     `SceneDocumentProduction` composition (shared evaluator + render tree)
+ * `SceneDocument` is the canonical source for the new path; the legacy
+ * VideoSpec pipeline is preserved untouched for compatibility.
  */
 
 export const renderProject = async (input: {
@@ -68,13 +69,18 @@ export const renderProject = async (input: {
 };
 
 /**
- * Frame-aware SceneDocument render path (Stage 3B).
+ * Production SceneDocument render path (Stage 3E).
  *
- * Bundles the same Remotion entrypoint and renders the
- * `SceneDocumentPreview` composition, whose FPS/duration resolve from
- * `document.timeline` and whose per-frame output comes from
- * `evaluateSceneAtFrame()`. Structural mirror of `renderProject` so the
- * legacy pipeline stays intact beside it.
+ *   immutable SceneDocument snapshot
+ *     → `SceneDocumentProduction` composition (timeline from document.timeline,
+ *        per-frame output from the shared evaluator — no new evaluator)
+ *     → renderMedia()
+ *     → output video
+ *
+ * Pure render step: no AI, no document mutation, no database access, no
+ * editor state. Invalid documents fail fast via schema validation with a
+ * clear error. Structural mirror of `renderProject` so the legacy
+ * VideoSpec pipeline stays intact beside it.
  */
 export const renderSceneDocument = async (input: {
   document: NonNullable<SceneCompositionProps['document']>;
@@ -84,6 +90,8 @@ export const renderSceneDocument = async (input: {
   outputPath: string;
   onProgress: (progress: number) => Promise<void> | void;
 }) => {
+  // Fail fast on invalid production documents (never silently corrupt a render).
+  const document = SceneDocumentSchema.parse(input.document);
   const entryPoint = fileURLToPath(
     new URL('./remotion/index.js', import.meta.url),
   );
@@ -101,20 +109,20 @@ export const renderSceneDocument = async (input: {
         mimeType: asset.mimeType,
       };
     }
-    void assets;
-    const timeline = resolveTimeline(input.document);
+    const timeline = resolveTimeline(document);
     const inputProps = {
-      document: input.document,
+      document,
       definitions: input.definitions,
       background: input.background,
+      assets,
     };
     const serveUrl = await bundle({ entryPoint, publicDir });
     const compositions = await getCompositions(serveUrl, { inputProps });
     const composition = compositions.find(
-      (candidate) => candidate.id === 'SceneDocumentPreview',
+      (candidate) => candidate.id === 'SceneDocumentProduction',
     );
     if (!composition)
-      throw new Error('SceneDocumentPreview Remotion composition was not found');
+      throw new Error('SceneDocumentProduction Remotion composition was not found');
     await input.onProgress(0);
     await renderMedia({
       composition: {

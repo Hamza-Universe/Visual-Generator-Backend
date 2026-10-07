@@ -386,8 +386,24 @@
               "queued",
               "running",
               "done",
-              "failed"
+              "failed",
+              "cancelled"
             ]
+          },
+          "sceneId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "clientKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "nullable": true
           },
           "progress": {
             "type": "integer",
@@ -416,6 +432,22 @@
             "type": "string",
             "format": "date-time"
           },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
           "updatedAt": {
             "type": "string",
             "format": "date-time"
@@ -430,6 +462,107 @@
           "createdAt",
           "updatedAt"
         ]
+      },
+      "RenderStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sceneId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "outputAssetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "scene-document",
+              "video-spec"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "status",
+          "progress",
+          "source",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SceneRenderCreateRequest": {
+        "type": "object",
+        "properties": {
+          "clientKey": {
+            "type": "string",
+            "description": "Optional idempotency key; repeat requests with the same key return the in-flight render instead of creating a duplicate.",
+            "maxLength": 128
+          }
+        }
       },
       "ValidationResult": {
         "type": "object",
@@ -2370,6 +2503,69 @@
         }
       }
     },
+    "/renders/{id}/status": {
+      "get": {
+        "summary": "Get lean render status for polling",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RenderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Render status without the snapshot payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/renders/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a queued or in-progress render",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RenderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled render",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Render"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
     "/projects/{id}/scenes": {
       "get": {
         "summary": "List scenes of a project",
@@ -2437,6 +2633,77 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/renders": {
+      "get": {
+        "summary": "List recent renders for a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scene render history (latest first)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsRenderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "summary": "Enqueue a production SceneDocument render",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneRenderCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Render queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Render"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "description": "Scene references an unknown component definition"
           }
         }
       }

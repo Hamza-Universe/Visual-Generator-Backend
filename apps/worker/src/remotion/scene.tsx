@@ -45,6 +45,13 @@ export interface SceneCompositionProps {
   width?: number;
   height?: number;
   background?: string;
+  /**
+   * Staged production assets by id (Stage 3E). Resolved and staged by the
+   * worker using the existing asset mechanisms; current built-in renderers
+   * ignore it, keeping asset-backed components forward-compatible without
+   * changing component semantics.
+   */
+  assets?: Record<string, { id: string; kind: string; fileName: string; mimeType: string }>;
 }
 
 type RendererProps = {

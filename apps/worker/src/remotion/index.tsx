@@ -4,6 +4,7 @@ import { DEFAULT_DURATION_FRAMES, DEFAULT_FPS, WORLD, resolveTimeline } from '@a
 import { VideoComposition, type RenderAsset } from './video.js';
 import type { SceneCompositionProps } from './scene.js';
 import { SceneFrameComposition } from './sceneFrame.js';
+import { SceneProductionComposition } from './sceneProduction.js';
 
 type CompositionProps = {
   spec: VideoSpec;
@@ -45,6 +46,33 @@ const Root = () => (
       }
       calculateMetadata={({ props }) => {
         // Stage 3B: composition FPS/duration come from document.timeline.
+        const timeline = resolveTimeline(
+          (props as SceneCompositionProps).document ?? {},
+        );
+        return {
+          durationInFrames: timeline.durationFrames,
+          fps: timeline.fps,
+          width: WORLD.width,
+          height: WORLD.height,
+        };
+      }}
+    />
+    <Composition
+      id="SceneDocumentProduction"
+      component={SceneProductionComposition}
+      durationInFrames={DEFAULT_DURATION_FRAMES}
+      fps={DEFAULT_FPS}
+      width={WORLD.width}
+      height={WORLD.height}
+      defaultProps={
+        {
+          document: { components: [], groups: [] },
+          definitions: {},
+        } satisfies SceneCompositionProps
+      }
+      calculateMetadata={({ props }) => {
+        // Stage 3E: production metadata uses the same single timeline
+        // interpretation as preview — document.timeline via resolveTimeline.
         const timeline = resolveTimeline(
           (props as SceneCompositionProps).document ?? {},
         );

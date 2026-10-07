@@ -202,14 +202,29 @@ export const renders = pgTable(
     projectId: uuid('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
+    // Stage 3F: which scene a scene-document render belongs to (null for
+    // legacy VideoSpec rows). SET NULL preserves history when a scene is
+    // deleted.
+    sceneId: uuid('scene_id').references(() => scenes.id, {
+      onDelete: 'set null',
+    }),
+    // Stage 3F: optional client-provided idempotency key for duplicate
+    // protection. Guarded at the application level (non-terminal match on
+    // scene + key returns the existing row); no unique constraint so
+    // legitimate repeat renders always remain possible.
+    clientKey: text('client_key'),
     status: text('status').notNull(),
     progress: integer('progress').default(0).notNull(),
     specSnapshot: jsonb('spec_snapshot').notNull(),
     outputAssetId: uuid('output_asset_id').references(() => assets.id),
     error: text('error'),
+    // Stage 3F: lifecycle timestamps (null until the transition happens).
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
     ...timestamps,
   },
   (table) => ({
     projectIndex: index('renders_project_id_idx').on(table.projectId),
+    sceneIndex: index('renders_scene_id_idx').on(table.sceneId),
   }),
 );
