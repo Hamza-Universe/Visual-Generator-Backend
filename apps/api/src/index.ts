@@ -17,6 +17,7 @@ import { registerGenerateRoute } from './routes/generate.js';
 import { AuthService } from './services/auth.js';
 import { registerAuthRoutes, requireAuth } from './routes/auth.js';
 import { registerSceneRoutes } from './routes/scenes.js';
+import { registerAIRoutes } from './routes/ai.js';
 import { EmailService } from './services/email.js';
 
 loadDotenv({
@@ -90,6 +91,11 @@ export const buildApp = (config = loadConfig()) => {
   registerRenderRoutes(app, db, config.REDIS_URL, storage, {
     attempts: config.RENDER_ATTEMPTS,
     backoffMs: config.RENDER_BACKOFF_MS,
+  });
+  registerAIRoutes(app, db, {
+    apiKey: config.OPENROUTER_API_KEY,
+    model: config.OPENROUTER_MODEL,
+    baseUrl: config.OPENROUTER_BASE_URL,
   });
   registerErrorHandler(app);
   return app;

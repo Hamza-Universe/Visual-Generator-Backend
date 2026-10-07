@@ -564,6 +564,164 @@
           }
         }
       },
+      "AIPlanRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Natural-language scene editing request."
+          },
+          "selection": {
+            "type": "object",
+            "description": "Optional editor selection supplied as context.",
+            "properties": {
+              "instanceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 50
+              }
+            }
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "AIOperation": {
+        "type": "object",
+        "description": "Deterministic, addressable scene operation. Supported types: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe. New instances are addressed by clientKey within the plan.",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "AIPlan": {
+        "type": "object",
+        "description": "Structured AI intent. Temporary planning data, not a second document model; applying it goes through the existing domain mutations.",
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AIOperation"
+            },
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      },
+      "AIPlanMeta": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "sceneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "contextVersion": {
+            "type": "string"
+          },
+          "latencyMs": {
+            "type": "number"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "promptTokens": {
+                "type": "number"
+              },
+              "completionTokens": {
+                "type": "number"
+              },
+              "totalTokens": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "AIPlanResponse": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/AIPlan"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AIPlanMeta"
+          }
+        },
+        "required": [
+          "plan",
+          "meta"
+        ]
+      },
+      "AIApplyRequest": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/AIPlan"
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "AIApplyResponse": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "array",
+            "description": "Operations in applied order, with the concrete ids they produced.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "index",
+                "type"
+              ]
+            }
+          },
+          "document": {
+            "$ref": "#/components/schemas/SceneDocument"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AIPlanMeta"
+          }
+        },
+        "required": [
+          "applied",
+          "document"
+        ]
+      },
       "ValidationResult": {
         "type": "object",
         "properties": {
@@ -2707,6 +2865,100 @@
           },
           "422": {
             "description": "Scene references an unknown component definition"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/ai/plan": {
+      "post": {
+        "summary": "Generate a validated AI scene edit plan (planning only, never mutates)",
+        "description": "Builds selective scene context (document, authorized component definitions, timeline), sends it to the configured OpenRouter model, and validates the structured response against the AI plan schema. The plan is returned for inspection. AI_MODEL_UNAVAILABLE (503) when no API key is configured; AI_PROVIDER_ERROR / AI_INVALID_RESPONSE / AI_SCHEMA_ERROR (502) when the model fails or returns invalid output.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Structured AI operation plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIPlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "description": "AI provider, response, or schema error"
+          },
+          "503": {
+            "description": "AI model not configured (AI_MODEL_UNAVAILABLE)"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/ai/apply": {
+      "post": {
+        "summary": "Apply a previously validated AI plan through the existing domain mutations",
+        "description": "Re-validates the complete plan against a fresh SceneDocument snapshot before any write, then applies each operation sequentially through the existing document service. An invalid plan applies nothing (AI_OPERATION_INVALID, 422). Component authorization and reference validation remain enforced.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan applied; returns the updated SceneDocument",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIApplyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         }
       }

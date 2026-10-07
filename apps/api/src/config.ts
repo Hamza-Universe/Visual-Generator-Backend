@@ -23,6 +23,14 @@ const EnvSchema = z.object({
   GEMINI_API_KEY: z.string().optional().default(''),
   AI_PROVIDER: z.enum(['manual', 'gemini']).default('manual'),
   AI_MODEL: z.string().optional().default('gemini-3.8-flash'),
+  /**
+   * Stage 4A scene-authoring AI (OpenRouter). Server-side only — never
+   * exposed to the frontend. The model is configurable via environment;
+   * changing it requires no application-code changes.
+   */
+  OPENROUTER_API_KEY: z.string().optional().default(''),
+  OPENROUTER_MODEL: z.string().optional().default('openrouter/free'),
+  OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
   CORS_ORIGIN: z.string().min(1).default('http://localhost:5173'),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(500),
   API_BASE_URL: z.string().url().default('http://localhost:3001'),

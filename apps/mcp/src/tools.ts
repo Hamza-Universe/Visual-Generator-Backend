@@ -223,4 +223,42 @@ export const registerTools = (
     async ({ renderId }) =>
       result(await json(base, token, `/renders/${renderId}`)),
   );
+  server.registerTool(
+    'plan_scene_edit',
+    {
+      description:
+        'POST /scenes/:id/ai/plan. Generates a structured AI operation plan for review. Planning never mutates the scene; apply the plan separately once reviewed.',
+      inputSchema: {
+        sceneId: z.string().uuid(),
+        prompt: z.string().min(1).max(4000),
+      },
+    },
+    async ({ sceneId, prompt }) =>
+      result(
+        await json(base, token, `/scenes/${sceneId}/ai/plan`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        }),
+      ),
+  );
+  server.registerTool(
+    'apply_scene_plan',
+    {
+      description:
+        'POST /scenes/:id/ai/apply. Re-validates a previously generated operation plan and applies it through the existing domain mutations. An invalid plan applies nothing (422 AI_OPERATION_INVALID).',
+      inputSchema: {
+        sceneId: z.string().uuid(),
+        plan: z.object({ operations: z.array(z.unknown()).max(50) }),
+      },
+    },
+    async ({ sceneId, plan }) =>
+      result(
+        await json(base, token, `/scenes/${sceneId}/ai/apply`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ plan }),
+        }),
+      ),
+  );
 };
