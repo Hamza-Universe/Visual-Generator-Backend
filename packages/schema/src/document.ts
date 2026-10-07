@@ -23,11 +23,45 @@ export const StyleSchema = z
 export const TimingSchema = z.object({
   start: z.number().min(0).default(0),
   duration: z.number().positive().default(2),
+  // Canonical frame-based timing (Stage 3A). Optional so legacy
+  // `{ start, duration }` (seconds) documents keep parsing unchanged.
+  // When present, `startFrame`/`durationFrames` take precedence and are
+  // resolved with `resolveTimingFrames()`. Convention:
+  //   startFrame <= frame < startFrame + durationFrames
+  startFrame: z.number().int().min(0).optional(),
+  durationFrames: z.number().int().min(0).optional(),
+});
+export const TimelineEasingSchema = z.enum(['linear', 'easeIn', 'easeOut', 'easeInOut']);
+export const AnimatablePropertySchema = z.enum([
+  'position.x',
+  'position.y',
+  'size.width',
+  'size.height',
+  'transform.rotation',
+  'transform.scaleX',
+  'transform.scaleY',
+  'style.opacity',
+]);
+export const TimelineKeyframeSchema = z.object({
+  frame: z.number().int().min(0),
+  value: z.number().finite(),
+  easing: TimelineEasingSchema.default('linear'),
+});
+export const AnimationTrackSchema = z.object({
+  property: AnimatablePropertySchema,
+  keyframes: z.array(TimelineKeyframeSchema).default([]),
+});
+export const TimelineSchema = z.object({
+  fps: z.number().int().min(1).max(240).default(30),
+  durationFrames: z.number().int().min(1).max(864000).default(300),
 });
 export const AnimationSchema = z.object({
   enter: z.array(z.string()).default([]),
   exit: z.array(z.string()).default([]),
   keyframes: z.array(z.unknown()).default([]),
+  // Deterministic property tracks (Stage 3A). Optional so legacy
+  // `{ enter, exit, keyframes }` documents keep parsing unchanged.
+  tracks: z.array(AnimationTrackSchema).optional(),
 });
 
 export const ComponentInstanceSchema = z.object({
@@ -72,6 +106,10 @@ export const SceneDocumentSchema = z.object({
   description: z.string().nullable().optional(),
   duration: z.number().nullable().optional(),
   meta: z.record(z.string(), z.unknown()).nullable().optional(),
+  // Canonical timeline metadata (Stage 3A). Frames are the canonical unit:
+  // fps=30, durationFrames=300 means a 10-second scene. Defaulted so legacy
+  // documents without `timeline` keep parsing and gain sane defaults.
+  timeline: TimelineSchema.default({ fps: 30, durationFrames: 300 }),
   components: z.array(ComponentInstanceSchema).default([]),
   groups: z.array(GroupSchema).default([]),
 });
@@ -87,6 +125,11 @@ export type Size = z.infer<typeof SizeSchema>;
 export type Transform = z.infer<typeof TransformSchema>;
 export type InstanceStyle = z.infer<typeof StyleSchema>;
 export type Timing = z.infer<typeof TimingSchema>;
+export type TimelineEasingName = z.infer<typeof TimelineEasingSchema>;
+export type AnimatableProperty = z.infer<typeof AnimatablePropertySchema>;
+export type TimelineKeyframe = z.infer<typeof TimelineKeyframeSchema>;
+export type AnimationTrack = z.infer<typeof AnimationTrackSchema>;
+export type SceneTimeline = z.infer<typeof TimelineSchema>;
 export type Animation = z.infer<typeof AnimationSchema>;
 export type DocumentComponentInstance = z.infer<typeof ComponentInstanceSchema>;
 export type DocumentGroup = z.infer<typeof GroupSchema>;
@@ -120,6 +163,7 @@ export const CreateSceneInputSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
   duration: z.number().positive().nullable().optional(),
   meta: z.record(z.string(), z.unknown()).nullable().optional(),
+  timeline: TimelineSchema.partial().optional(),
 });
 export const UpdateSceneInputSchema = CreateSceneInputSchema.partial();
 
@@ -127,6 +171,101 @@ export type CreateInstanceInput = z.infer<typeof CreateInstanceInputSchema>;
 export type UpdateInstanceInput = z.infer<typeof UpdateInstanceInputSchema>;
 export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
+export type CreateSceneInput = z.infer<typeof CreateSceneInputSchema>;
+export type UpdateSceneInput = z.infer<typeof UpdateSceneInputSchema>;
+
+/**
+ * Stage 3A timeline helpers (schema layer).
+ *
+ * Frames are the canonical unit. `Timing` keeps legacy `{ start, duration }`
+ * (seconds) for backward compatibility; when `startFrame`/`durationFrames`
+ * are present they take precedence. Otherwise legacy seconds convert via
+ * `fps`: startFrame = round(start * fps), durationFrames = round(duration * fps).
+ *
+ * Timing boundary convention (inclusive/exclusive):
+ *   visible  <=>  startFrame <= frame < startFrame + durationFrames
+ * so startFrame=30, durationFrames=60 is visible on frames 30..89.
+ */
+export const DEFAULT_TIMELINE_FPS = 30;
+export const DEFAULT_TIMELINE_DURATION_FRAMES = 300;
+
+export const resolveSceneTimeline = (scene: {
+  timeline?: { fps?: unknown; durationFrames?: unknown } | null;
+  duration?: unknown;
+}): { fps: number; durationFrames: number } => {
+  const raw = scene.timeline ?? {};
+  const fps =
+    typeof raw.fps === 'number' &&
+    Number.isInteger(raw.fps) &&
+    raw.fps >= 1 &&
+    raw.fps <= 240
+      ? raw.fps
+      : DEFAULT_TIMELINE_FPS;
+  const durationFrames =
+    typeof raw.durationFrames === 'number' &&
+    Number.isInteger(raw.durationFrames) &&
+    raw.durationFrames >= 1
+      ? raw.durationFrames
+      : typeof scene.duration === 'number' &&
+          Number.isFinite(scene.duration) &&
+          scene.duration > 0
+        ? Math.max(1, Math.round(scene.duration * fps))
+        : DEFAULT_TIMELINE_DURATION_FRAMES;
+  return { fps, durationFrames };
+};
+
+export const resolveTimingFrames = (
+  timing:
+    | {
+        start?: unknown;
+        duration?: unknown;
+        startFrame?: unknown;
+        durationFrames?: unknown;
+      }
+    | null
+    | undefined,
+  fps = DEFAULT_TIMELINE_FPS,
+): { startFrame: number; durationFrames: number; endFrame: number } => {
+  const safeFps =
+    typeof fps === 'number' && Number.isFinite(fps) && fps > 0 ? fps : DEFAULT_TIMELINE_FPS;
+  const t = timing ?? {};
+  const startFrame =
+    typeof t.startFrame === 'number' &&
+    Number.isInteger(t.startFrame) &&
+    t.startFrame >= 0
+      ? t.startFrame
+      : typeof t.start === 'number' && Number.isFinite(t.start) && t.start >= 0
+        ? Math.max(0, Math.round(t.start * safeFps))
+        : 0;
+  const durationFrames =
+    typeof t.durationFrames === 'number' &&
+    Number.isInteger(t.durationFrames) &&
+    t.durationFrames >= 0
+      ? t.durationFrames
+      : typeof t.duration === 'number' && Number.isFinite(t.duration) && t.duration > 0
+        ? Math.max(1, Math.round(t.duration * safeFps))
+        : DEFAULT_TIMELINE_DURATION_FRAMES;
+  return { startFrame, durationFrames, endFrame: startFrame + durationFrames };
+};
+
+export const isFrameVisibleAt = (
+  timing:
+    | {
+        start?: unknown;
+        duration?: unknown;
+        startFrame?: unknown;
+        durationFrames?: unknown;
+      }
+    | null
+    | undefined,
+  frame: number,
+  fps = DEFAULT_TIMELINE_FPS,
+): boolean => {
+  if (typeof frame !== 'number' || !Number.isFinite(frame)) return false;
+  const f = Math.floor(frame);
+  const { startFrame, endFrame } = resolveTimingFrames(timing, fps);
+  return startFrame <= f && f < endFrame;
+};
 
 type AjvValidator = ((data: unknown) => boolean) & {
   errors?: Array<{ instancePath: string; message?: string }> | null;

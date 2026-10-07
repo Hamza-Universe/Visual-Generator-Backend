@@ -1,4 +1,4 @@
-# @app/render — shared render semantics (Stage 2D)
+# @app/render — shared render semantics (Stage 2D + 3A timeline)
 
 Single source of truth for how a `SceneDocument` looks. Consumed by the
 Remotion worker (`SceneComposition`) and the frontend (preview + canvas),
@@ -25,6 +25,18 @@ so both renderers interpret the same document identically.
 - **Geometry** (see `geometry.ts`): axis-aligned world-space boxes;
   rotation never affects bounds. Connector endpoints sit on box edges
   along the center-to-center line.
+- **Timeline** (see `timeline.ts`, Stage 3A): frames are canonical
+  (`timeline: { fps, durationFrames }`). Timing convention is
+  `startFrame <= frame < endFrame` (endFrame = startFrame +
+  durationFrames). Out-of-range instances evaluate to `visible: false`
+  but are kept (ids/refs stable) for predictable timeline editing.
+- **Evaluator** (see `evaluator.ts`, Stage 3A):
+  `evaluateSceneAtFrame(document, frame)` is pure and feeds the existing
+  render tree. Tracks override base values without mutating the document.
+  Supported properties: `position.x/y`, `size.width/height`,
+  `transform.rotation/scaleX/scaleY`, `style.opacity`. Easing: `linear`,
+  `easeIn`, `easeOut`, `easeInOut`. Segment easing comes from the starting
+  keyframe (`A.easing`); unknown names fall back to `linear`.
 
 ## Rules
 
