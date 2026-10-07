@@ -22,7 +22,8 @@ import {
   type TimelineDocument,
   type TimelineKeyframe,
 } from './timeline.js';
-import type { RenderableGroup, RenderableInstance } from './types.js';
+import type { RenderableGroup, RenderableInstance, RenderTreeNode } from './types.js';
+import { buildRenderTree } from './tree.js';
 
 export type EvaluatedComponentInstance = RenderableInstance & {
   timing?: { start?: number; duration?: number; startFrame?: number; durationFrames?: number } | null;
@@ -253,5 +254,25 @@ export const evaluateSceneAtFrame = <TDoc extends TimelineDocument>(
 
 /** Convenience alias matching the task's `evaluateSceneAtTime()` naming. */
 export const evaluateSceneAtTime = evaluateSceneAtFrame;
+
+/**
+ * Small reusable frame-render API (Stage 3B, Phase 12).
+ *
+ *   renderSceneAtFrame(document, frame) → { evaluatedScene, tree }
+ *
+ * Shared by the Remotion composition and the frontend preview so both get
+ * identical semantics from the same input + frame. Pure: never mutates.
+ */
+export const renderSceneAtFrame = <TDoc extends TimelineDocument>(
+  document: TDoc,
+  frame: number,
+): {
+  evaluatedScene: EvaluatedScene & { [key: string]: unknown };
+  tree: RenderTreeNode<EvaluatedComponentInstance>[];
+} => {
+  const evaluatedScene = evaluateSceneAtFrame(document, frame);
+  const tree = buildRenderTree(evaluatedScene);
+  return { evaluatedScene, tree };
+};
 
 export type { AnimatableProperty, AnimationTrack, TimelineKeyframe } from './timeline.js';

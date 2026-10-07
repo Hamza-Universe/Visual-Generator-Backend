@@ -3,6 +3,9 @@ import {
   WORLD,
   buildRenderTree,
   connectorEndpointsFor,
+  evaluateSceneAtFrame,
+  normalizeFrame,
+  resolveTimeline,
   type RenderableDocument,
   type RenderNode,
   type RenderTreeNode,
@@ -15,8 +18,15 @@ import {
  * styles, keys, references and geometry as the editor — so a scene looks
  * identical in the frontend preview and in Remotion output.
  *
+ * Stage 3B: this component is frame-aware. It evaluates the document at
+ * `props.frame` (default 0) via the Stage 3A evaluator, then builds the
+ * existing render tree from the evaluated scene. Connectors resolve
+ * against evaluated components, so animated references are followed.
+ *
  * Deliberately free of `remotion` imports (plain divs/SVG only) so the
- * mapping stays unit-testable with react-dom/server.
+ * mapping stays unit-testable with react-dom/server. The Remotion
+ * frame source (`useCurrentFrame`) lives in `./sceneFrame.js`, which
+ * delegates here — keeping evaluation logic separate from renderer logic.
  */
 
 export type SceneDefinitions = Record<string, string>;
@@ -26,6 +36,12 @@ export interface SceneCompositionProps {
   document?: RenderableDocument;
   /** componentDefinitionId → definition `name` (the renderer key). */
   definitions?: SceneDefinitions;
+  /**
+   * Frame to evaluate (Stage 3B). The frame-aware wrapper (`sceneFrame.js`)
+   * supplies Remotion's current frame; direct renders default to frame 0,
+   * which keeps legacy static documents fully visible.
+   */
+  frame?: number;
   width?: number;
   height?: number;
   background?: string;
@@ -334,14 +350,44 @@ const SceneGroupNode = ({
   </div>
 );
 
+/**
+ * Composition config derived from the document timeline (Stage 3B).
+ * fps and durationInFrames come from `document.timeline` — never hard-coded.
+ * Invalid/absent timelines fall back to the schema defaults (30fps/300f).
+ */
+export const resolveSceneCompositionConfig = (document?: {
+  timeline?: { fps?: unknown; durationFrames?: unknown } | null;
+  duration?: unknown;
+  components?: unknown;
+  groups?: unknown;
+}): { fps: number; durationInFrames: number; width: number; height: number } => {
+  const timeline = resolveTimeline(document ?? {});
+  return {
+    fps: timeline.fps,
+    durationInFrames: timeline.durationFrames,
+    width: WORLD.width,
+    height: WORLD.height,
+  };
+};
+
 export const SceneComposition = ({
   document = { components: [], groups: [] },
   definitions = {},
+  frame = 0,
   width = WORLD.width,
   height = WORLD.height,
   background = '#ffffff',
 }: SceneCompositionProps): ReactNode => {
-  const tree = buildRenderTree(document);
+  // Stage 3B: Remotion frame → Stage 3A evaluator → existing render tree.
+  // The evaluated scene (not the stored document) feeds the tree AND the
+  // per-instance renderers, so timing, animated values, and animated
+  // connectors all agree. The stored document is never mutated.
+  const evaluatedScene = evaluateSceneAtFrame(document, normalizeFrame(frame));
+  const evaluatedDocument = {
+    components: evaluatedScene.components,
+    groups: evaluatedScene.groups,
+  };
+  const tree = buildRenderTree(evaluatedDocument);
   return (
     <div
       data-scene-document={true}
@@ -352,7 +398,7 @@ export const SceneComposition = ({
           <SceneInstanceNode
             key={root.node.instance.id}
             node={root.node}
-            document={document}
+            document={evaluatedDocument}
             definitionName={definitionNameOf(definitions, root.node.instance)}
           />
         ) : (
@@ -360,7 +406,7 @@ export const SceneComposition = ({
             key={root.group.id}
             group={root.group}
             children={root.children}
-            document={document}
+            document={evaluatedDocument}
             definitions={definitions}
           />
         ),

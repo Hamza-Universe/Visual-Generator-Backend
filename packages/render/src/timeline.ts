@@ -91,40 +91,51 @@ export interface ComponentAnimation {
   tracks?: AnimationTrack[];
 }
 
-/** Minimal structural input: any SceneDocument-like object satisfies this. */
+/**
+ * Minimal structural input (Stage 3A).
+ *
+ * Any SceneDocument-like object satisfies this — `@app/schema` documents,
+ * frontend `types/api` scenes, and worker test fixtures. Deliberately free
+ * of index signatures so plain interfaces stay assignable; extra fields
+ * (ids, definition refs, timestamps) flow through evaluation untouched.
+ */
+export interface TimelineInstance {
+  id: string;
+  props: Record<string, unknown>;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  transform: { rotation: number; scaleX: number; scaleY: number };
+  style: { opacity: number; [key: string]: unknown };
+  visible: boolean;
+  zIndex: number;
+  groupId?: string | null;
+  timing?: ComponentTiming | null;
+  animation?: ComponentAnimation | null;
+}
+
+export interface TimelineGroup {
+  id: string;
+  parentGroupId?: string | null;
+  zIndex: number;
+}
+
 export interface TimelineDocument {
   timeline?: TimelineMetadata | null;
   /** Legacy seconds duration (fallback when `timeline` is absent). */
   duration?: number | null;
-  components: Array<{
-    id: string;
-    props: Record<string, unknown>;
-    position: { x: number; y: number };
-    size: { width: number; height: number };
-    transform: { rotation: number; scaleX: number; scaleY: number };
-    style: { opacity: number; [key: string]: unknown };
-    visible: boolean;
-    zIndex: number;
-    groupId?: string | null;
-    timing?: ComponentTiming | null;
-    animation?: ComponentAnimation | null;
-    [key: string]: unknown;
-  }>;
-  groups: Array<{
-    id: string;
-    parentGroupId?: string | null;
-    zIndex: number;
-    [key: string]: unknown;
-  }>;
-  [key: string]: unknown;
+  components: TimelineInstance[];
+  groups: TimelineGroup[];
 }
 
 /** Deterministic timeline resolution. Invalid values fall back to defaults. */
 export const resolveTimeline = (document: {
   timeline?: { fps?: unknown; durationFrames?: unknown } | null;
   duration?: unknown;
-}): TimelineMetadata => {
-  const raw = document.timeline ?? {};
+  components?: unknown;
+  groups?: unknown;
+} | null | undefined): TimelineMetadata => {
+  const doc = document ?? {};
+  const raw = doc.timeline ?? {};
   const fps =
     typeof raw.fps === 'number' &&
     Number.isInteger(raw.fps) &&
@@ -138,12 +149,12 @@ export const resolveTimeline = (document: {
     raw.durationFrames >= 1 &&
     raw.durationFrames <= MAX_DURATION_FRAMES
       ? raw.durationFrames
-      : typeof document.duration === 'number' &&
-          Number.isFinite(document.duration) &&
-          document.duration > 0
+      : typeof doc.duration === 'number' &&
+          Number.isFinite(doc.duration) &&
+          doc.duration > 0
         ? Math.min(
             MAX_DURATION_FRAMES,
-            Math.max(1, Math.round(document.duration * fps)),
+            Math.max(1, Math.round(doc.duration * fps)),
           )
         : DEFAULT_DURATION_FRAMES;
   return { fps, durationFrames };

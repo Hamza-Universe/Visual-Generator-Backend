@@ -1,9 +1,9 @@
 import { Composition, registerRoot } from 'remotion';
 import { defaultSpec, type VideoSpec } from '@app/schema';
-import { WORLD } from '@app/render';
+import { DEFAULT_DURATION_FRAMES, DEFAULT_FPS, WORLD, resolveTimeline } from '@app/render';
 import { VideoComposition, type RenderAsset } from './video.js';
-import { SceneComposition } from './scene.js';
 import type { SceneCompositionProps } from './scene.js';
+import { SceneFrameComposition } from './sceneFrame.js';
 
 type CompositionProps = {
   spec: VideoSpec;
@@ -32,9 +32,9 @@ const Root = () => (
     />
     <Composition
       id="SceneDocumentPreview"
-      component={SceneComposition}
-      durationInFrames={30}
-      fps={30}
+      component={SceneFrameComposition}
+      durationInFrames={DEFAULT_DURATION_FRAMES}
+      fps={DEFAULT_FPS}
       width={WORLD.width}
       height={WORLD.height}
       defaultProps={
@@ -43,12 +43,18 @@ const Root = () => (
           definitions: {},
         } satisfies SceneCompositionProps
       }
-      calculateMetadata={() => ({
-        durationInFrames: 30,
-        fps: 30,
-        width: WORLD.width,
-        height: WORLD.height,
-      })}
+      calculateMetadata={({ props }) => {
+        // Stage 3B: composition FPS/duration come from document.timeline.
+        const timeline = resolveTimeline(
+          (props as SceneCompositionProps).document ?? {},
+        );
+        return {
+          durationInFrames: timeline.durationFrames,
+          fps: timeline.fps,
+          width: WORLD.width,
+          height: WORLD.height,
+        };
+      }}
     />
   </>
 );
