@@ -9,6 +9,8 @@ export type ValidationContext = {
   assetExists: (id: string) => boolean;
   assetKind: (id: string) => string | undefined;
   maxComponents?: number;
+  componentInstanceExists?: (name: string) => boolean;
+  groupExists?: (id: string) => boolean;
 };
 
 const paletteRef = (value: unknown): value is string =>

@@ -48,7 +48,8 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
     if (filter === 'mine' && user) {
       whereConditions.push(eq(components.userId, user.id));
     } else if (filter === 'public') {
-      whereConditions.push(eq(components.isPublic, 'true'));
+      // Include legacy seed rows (userId NULL) as public.
+      whereConditions.push(or(eq(components.isPublic, true), isNull(components.userId)));
     } else if (filter === 'project' && projectId && user) {
       // Get components used in this project
       const project = await db
@@ -67,17 +68,19 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
       // For simplicity, fetch all user's components + public components and filter in memory
       whereConditions.push(or(
         eq(components.userId, user.id),
-        eq(components.isPublic, 'true')
+        eq(components.isPublic, true),
+        isNull(components.userId)
       ));
     } else {
       // 'all' - show user's private + public components
       if (user) {
         whereConditions.push(or(
           eq(components.userId, user.id),
-          eq(components.isPublic, 'true')
+          eq(components.isPublic, true),
+          isNull(components.userId)
         ));
       } else {
-        whereConditions.push(eq(components.isPublic, 'true'));
+        whereConditions.push(or(eq(components.isPublic, true), isNull(components.userId)));
       }
     }
 
@@ -130,8 +133,11 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
         reply,
         new AppError('NOT_FOUND', 'Component not found', 404),
       );
-    // Check access: owner or public
-    if (row.userId && row.userId !== user?.id && row.isPublic !== 'true') {
+    // Public → visible to all authenticated users; private → owner only.
+    // Legacy seed rows have userId NULL: treat them as public.
+    const visible =
+      row.isPublic === true || row.userId === null || row.userId === user?.id;
+    if (!visible) {
       return sendError(
         reply,
         new AppError('FORBIDDEN', 'Access denied', 403),
@@ -149,8 +155,8 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
         .insert(components)
         .values({
           ...input,
-          userId: input.isPublic === 'true' ? null : user.id,
-          isPublic: input.isPublic ?? 'false',
+          userId: input.isPublic === true ? null : user.id,
+          isPublic: input.isPublic ?? false,
         } as never)
         .returning();
       return reply.code(201).send(row);
@@ -183,7 +189,7 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
         .update(components)
         .set({
           ...input,
-          userId: input.isPublic === 'true' ? null : user.id,
+          userId: input.isPublic === true ? null : user.id,
           isPublic: input.isPublic ?? existing.isPublic,
         } as never)
         .where(eq(components.id, id))

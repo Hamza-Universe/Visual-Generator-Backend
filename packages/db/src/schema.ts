@@ -8,6 +8,8 @@ import {
   timestamp,
   uuid,
   index,
+  boolean,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
 const timestamps = {
@@ -66,7 +68,7 @@ export const components = pgTable('components', {
   refProps: text('ref_props').array().default([]).notNull(),
   assetProps: text('asset_props').array().default([]).notNull(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  isPublic: text('is_public').default('false').notNull(),
+  isPublic: boolean('is_public').default(false).notNull(),
   ...timestamps,
 }, (table) => ({
   userIndex: index('components_user_id_idx').on(table.userId),
@@ -89,6 +91,71 @@ export const assets = pgTable(
   (table) => ({
     userIndex: index('assets_user_id_idx').on(table.userId),
     projectIndex: index('assets_project_id_idx').on(table.projectId),
+  }),
+);
+export const scenes = pgTable(
+  'scenes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    duration: real('duration'),
+    meta: jsonb('meta'),
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  },
+  (table) => ({
+    projectIndex: index('scenes_project_id_idx').on(table.projectId),
+  }),
+);
+export const componentInstances = pgTable(
+  'component_instances',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sceneId: uuid('scene_id')
+      .notNull()
+      .references(() => scenes.id, { onDelete: 'cascade' }),
+    componentDefinitionId: uuid('component_definition_id')
+      .notNull()
+      .references(() => components.id, { onDelete: 'restrict' }),
+  groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
+    props: jsonb('props').default({}).notNull(),
+    position: jsonb('position').default({ x: 0, y: 0 }).notNull(),
+    size: jsonb('size').default({ width: 100, height: 100 }).notNull(),
+    transform: jsonb('transform').default({ rotation: 0, scaleX: 1, scaleY: 1 }).notNull(),
+    style: jsonb('style').default({ opacity: 1 }).notNull(),
+    visible: boolean('visible').default(true).notNull(),
+    zIndex: integer('z_index').default(0).notNull(),
+    timing: jsonb('timing').default({ start: 0, duration: 2 }).notNull(),
+    animation: jsonb('animation').default({ enter: [], exit: [], keyframes: [] }).notNull(),
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  },
+  (table) => ({
+    sceneIndex: index('component_instances_scene_id_idx').on(table.sceneId),
+    groupIndex: index('component_instances_group_id_idx').on(table.groupId),
+    definitionIndex: index('component_instances_definition_id_idx').on(table.componentDefinitionId),
+  }),
+);
+export const groups = pgTable(
+  'groups',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sceneId: uuid('scene_id')
+      .notNull()
+      .references(() => scenes.id, { onDelete: 'cascade' }),
+   parentGroupId: uuid('parent_group_id').references((): AnyPgColumn => groups.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    zIndex: integer('z_index').default(0).notNull(),
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  },
+  (table) => ({
+    sceneIndex: index('groups_scene_id_idx').on(table.sceneId),
+    parentGroupIndex: index('groups_parent_group_id_idx').on(table.parentGroupId),
   }),
 );
 export const transcripts = pgTable(

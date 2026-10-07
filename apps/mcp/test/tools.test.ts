@@ -16,17 +16,27 @@ const createFakeServer = () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('MCP tools', () => {
-  it('registers exactly nine tools', () => {
+  it('registers the expected tools', () => {
     const { server, handlers } = createFakeServer();
     registerTools(server as never, 'http://api.test', 'jwt-token');
     expect([...handlers.keys()]).toEqual([
       'list_components',
       'list_projects',
+      'list_assets',
+      'get_asset_media_url',
+      'get_transcript',
+      'import_transcript',
+      'get_generation_context',
       'get_project',
       'validate_spec',
+      'submit_spec',
       'generate_spec',
       'build_manual_prompt',
       'submit_manual_spec',
+      'get_scene_document',
+      'list_scenes',
+      'list_scene_instances',
+      'list_scene_groups',
       'create_render',
       'get_render',
     ]);

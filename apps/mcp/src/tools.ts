@@ -165,6 +165,42 @@ export const registerTools = (
       ),
   );
   server.registerTool(
+    'get_scene_document',
+    {
+      description: 'GET /scenes/:id/document. Returns one scene with its component instances and groups.',
+      inputSchema: { sceneId: z.string().uuid() },
+    },
+    async ({ sceneId }) =>
+      result(await json(base, token, `/scenes/${sceneId}/document`)),
+  );
+  server.registerTool(
+    'list_scenes',
+    {
+      description: 'GET /projects/:id/scenes. Lists first-class scenes of a project.',
+      inputSchema: { projectId: z.string().uuid() },
+    },
+    async ({ projectId }) =>
+      result(await json(base, token, `/projects/${projectId}/scenes`)),
+  );
+  server.registerTool(
+    'list_scene_instances',
+    {
+      description: 'GET /scenes/:id/instances. Lists component instances in a scene.',
+      inputSchema: { sceneId: z.string().uuid() },
+    },
+    async ({ sceneId }) =>
+      result(await json(base, token, `/scenes/${sceneId}/instances`)),
+  );
+  server.registerTool(
+    'list_scene_groups',
+    {
+      description: 'GET /scenes/:id/groups. Lists groups in a scene.',
+      inputSchema: { sceneId: z.string().uuid() },
+    },
+    async ({ sceneId }) =>
+      result(await json(base, token, `/scenes/${sceneId}/groups`)),
+  );
+  server.registerTool(
     'create_render',
     {
       description:

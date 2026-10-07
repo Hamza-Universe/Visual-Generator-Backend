@@ -16,6 +16,7 @@ import { checkFfmpeg, GeminiTranscriptionProvider } from './services/transcripti
 import { registerGenerateRoute } from './routes/generate.js';
 import { AuthService } from './services/auth.js';
 import { registerAuthRoutes, requireAuth } from './routes/auth.js';
+import { registerSceneRoutes } from './routes/scenes.js';
 import { EmailService } from './services/email.js';
 
 loadDotenv({
@@ -72,6 +73,7 @@ export const buildApp = (config = loadConfig()) => {
   });
   registerAuthRoutes(app, db, auth, email);
   registerProjectRoutes(app, db);
+  registerSceneRoutes(app, db);
   registerComponentRoutes(app, db);
   registerAssetRoutes(app, db, storage, config.MAX_UPLOAD_MB, config.API_BASE_URL);
   registerTranscriptRoutes(
