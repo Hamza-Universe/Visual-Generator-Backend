@@ -1,18 +1,23 @@
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
-import { Worker } from 'bullmq';
+import { UnrecoverableError, Worker } from 'bullmq';
 import { assets, components, createDb, projects, renders } from '@app/db';
 import { and, eq } from 'drizzle-orm';
 import { LocalStorage } from '@app/storage';
 import {
+  DEFAULT_RENDER_ATTEMPTS,
+  RENDER_TEMP_DIR_NAME,
   VideoSpecSchema,
+  buildRenderTempPaths,
   buildRenderTelemetryEvent,
+  classifyRenderError,
   decideRenderFailure,
   emitRenderTelemetry,
   isSceneDocumentSnapshot,
   mapSceneRenderProgress,
   parseSceneRenderSnapshot,
   resolveRenderStart,
+  resolveRetryDecision,
   type Scene,
 } from '@app/schema';
 import { renderProject, renderSceneDocument, type RenderInputAsset } from './renderer.js';
@@ -36,6 +41,26 @@ const config = loadConfig();
 const redis = new URL(config.REDIS_URL);
 const db = createDb(config.DATABASE_URL);
 const storage = new LocalStorage(config.STORAGE_DIR);
+
+/** Structured worker log line (machine-parseable, never documents/secrets). */
+const logWorkerEvent = (event: Record<string, unknown>): void => {
+  console.info(JSON.stringify({ worker: 'render', ...event }));
+};
+
+// Stage 3H: sweep orphaned temp files from crashed runs. Clean attempts
+// remove their own files in `finally`, so anything left in the temp dir at
+// boot belongs to a dead process. Persistent output assets live outside the
+// temp dir and are never touched here.
+await rm(join(config.STORAGE_DIR, RENDER_TEMP_DIR_NAME), {
+  recursive: true,
+  force: true,
+}).catch(() => undefined);
+
+logWorkerEvent({
+  event: 'ready',
+  concurrency: config.RENDER_WORKER_CONCURRENCY,
+  timeoutMs: config.RENDER_TIMEOUT_MS,
+});
 
 const referencedAssetIds = (
   spec: ReturnType<typeof VideoSpecSchema.parse>,
@@ -64,6 +89,9 @@ const referencedAssetIds = (
 export const worker = new Worker<{ renderId: string }>(
   'render',
   async (job) => {
+    const startedAt = Date.now();
+    const attempt = job.attemptsMade + 1;
+    const maxAttempts = job.opts.attempts ?? DEFAULT_RENDER_ATTEMPTS;
     const [render] = await db
       .select()
       .from(renders)
@@ -74,6 +102,7 @@ export const worker = new Worker<{ renderId: string }>(
       .from(projects)
       .where(eq(projects.id, render.projectId));
     if (!project?.userId) throw new Error('Render project has no owner');
+    const sceneSnapshot = isSceneDocumentSnapshot(render.specSnapshot);
     // Stage 3F: a record cancelled while queued never starts rendering.
     const start = resolveRenderStart(render.status);
     if (start.terminal) return { renderId: render.id, status: 'cancelled' };
@@ -81,46 +110,82 @@ export const worker = new Worker<{ renderId: string }>(
       .update(renders)
       .set({ status: 'running', progress: 0, startedAt: new Date(), updatedAt: new Date() })
       .where(eq(renders.id, render.id));
+    logWorkerEvent({
+      event: 'started',
+      renderId: render.id,
+      source: sceneSnapshot ? 'scene-document' : 'video-spec',
+      attempt,
+      maxAttempts,
+    });
     await mkdir(config.STORAGE_DIR, { recursive: true });
-    const tempPath = join(config.STORAGE_DIR, `${randomUUID()}.mp4`);
+    const { outputPath: tempPath } = buildRenderTempPaths(
+      config.STORAGE_DIR,
+      randomUUID(),
+    );
+    await mkdir(join(config.STORAGE_DIR, RENDER_TEMP_DIR_NAME), { recursive: true });
     try {
       // Stage 3E migration boundary: rows whose specSnapshot is an explicit
       // scene-document envelope render through the new SceneDocument path;
       // everything else keeps the legacy VideoSpec path, unchanged.
-      if (isSceneDocumentSnapshot(render.specSnapshot)) {
-        await runSceneDocumentRender(db, storage, render.id, render.projectId, project.userId, tempPath);
+      if (sceneSnapshot) {
+        await runSceneDocumentRender(db, storage, render.id, render.projectId, project.userId, tempPath, config.RENDER_TIMEOUT_MS);
       } else {
-        await runLegacyRender(db, storage, render.id, render.projectId, project.userId, tempPath);
+        await runLegacyRender(db, storage, render.id, render.projectId, project.userId, tempPath, config.RENDER_TIMEOUT_MS);
       }
+      const durationMs = Date.now() - startedAt;
       // Stage 3G: lifecycle telemetry with an explicit source so legacy vs
       // current usage is directly comparable. Payload-free by construction.
       emitRenderTelemetry(
         (event) => console.info(JSON.stringify(event)),
         buildRenderTelemetryEvent({
           event: 'succeeded',
-          source: isSceneDocumentSnapshot(render.specSnapshot)
-            ? 'scene-document'
-            : 'video-spec',
+          source: sceneSnapshot ? 'scene-document' : 'video-spec',
           renderId: render.id,
           projectId: render.projectId,
           sceneId: isSceneDocumentSnapshot(render.specSnapshot)
             ? render.specSnapshot.document.id
             : null,
+          attempt,
+          durationMs,
         }),
       );
+      logWorkerEvent({ event: 'completed', renderId: render.id, attempt, durationMs });
       return { renderId: render.id, status: 'done' };
     } catch (error) {
-      // Stage 3F: cancellation stays `cancelled` (never `failed`, never
-      // `done`); everything else records a useful message. Records never
-      // stick in `running`.
+      const durationMs = Date.now() - startedAt;
       const [current] = await db
         .select({ status: renders.status })
         .from(renders)
         .where(eq(renders.id, render.id));
+      // Stage 3H: retry only genuinely transient failures. Non-retryable
+      // and cancelled outcomes settle the record now; retryable failures
+      // rethrow untouched so BullMQ retries from the immutable snapshot
+      // (the record stays `running`, never a false `failed`).
+      const classification = classifyRenderError(error);
+      const retryDecision = resolveRetryDecision({
+        classification,
+        attemptsMade: job.attemptsMade,
+        maxAttempts,
+        rowCancelled: current?.status === 'cancelled',
+      });
+      if (retryDecision === 'retry') {
+        logWorkerEvent({
+          event: 'retry',
+          renderId: render.id,
+          attempt,
+          maxAttempts,
+          durationMs,
+          reason: error instanceof Error ? error.message : 'Render failed',
+        });
+        throw error;
+      }
+      // Stage 3F: cancellation stays `cancelled` (never `failed`, never
+      // `done`); everything else records a useful message. Records never
+      // stick in `running`.
       const decision = decideRenderFailure(
         error,
         current?.status,
-        error instanceof RenderCancelledError,
+        retryDecision === 'cancelled',
       );
       // Cancellations are intentional, not failures — only failed outcomes
       // emit the failure event so legacy/current failure rates stay honest.
@@ -129,14 +194,14 @@ export const worker = new Worker<{ renderId: string }>(
           (event) => console.info(JSON.stringify(event)),
           buildRenderTelemetryEvent({
             event: 'failed',
-            source: isSceneDocumentSnapshot(render.specSnapshot)
-              ? 'scene-document'
-              : 'video-spec',
+            source: sceneSnapshot ? 'scene-document' : 'video-spec',
             renderId: render.id,
             projectId: render.projectId,
             sceneId: isSceneDocumentSnapshot(render.specSnapshot)
               ? render.specSnapshot.document.id
               : null,
+            attempt,
+            durationMs,
           }),
         );
       }
@@ -149,12 +214,30 @@ export const worker = new Worker<{ renderId: string }>(
           updatedAt: new Date(),
         })
         .where(eq(renders.id, render.id));
-      throw error;
+      logWorkerEvent({
+        event: decision.status === 'cancelled' ? 'cancelled' : 'failed',
+        renderId: render.id,
+        attempt,
+        durationMs,
+      });
+      // Unrecoverable: settled records must never be retried by BullMQ —
+      // a retry could otherwise revive a cancelled/failed render.
+      throw new UnrecoverableError(
+        decision.status === 'cancelled'
+          ? 'Render was cancelled'
+          : (decision.error ?? 'Render failed'),
+      );
     } finally {
       await rm(tempPath, { force: true });
     }
   },
   {
+    // Stage 3H: explicit concurrency (default 1 — browser encodes are
+    // CPU/memory heavy) and stall recovery. BullMQ renews the lock while
+    // the processor is alive; a crashed process stops renewing, the job
+    // stalls, and BullMQ requeues it from the immutable snapshot.
+    concurrency: config.RENDER_WORKER_CONCURRENCY,
+    lockDuration: 60000,
     connection: {
       host: redis.hostname,
       port: Number(redis.port || 6379),
@@ -189,25 +272,25 @@ const trackProgress = (db: Database, renderId: string) => {
 /**
  * Stage 3F progress writer for SceneDocument renders: maps Remotion encode
  * progress onto lifecycle milestones and cooperatively observes
- * cancellation about once per second (never per frame).
+ * cancellation on throttled ticks only (~1/sec, plus the final tick) —
+ * never per frame.
  */
 const trackSceneProgress = (db: Database, renderId: string) => {
   let lastProgressAt = 0;
   return async (progress: number) => {
+    const mapped = mapSceneRenderProgress(progress);
+    const now = Date.now();
+    if (mapped !== 100 && now - lastProgressAt < 1000) return;
+    lastProgressAt = now;
     const [row] = await db
       .select({ status: renders.status })
       .from(renders)
       .where(eq(renders.id, renderId));
     if (!row || row.status === 'cancelled') throw new RenderCancelledError();
-    const mapped = mapSceneRenderProgress(progress);
-    const now = Date.now();
-    if (mapped === 100 || now - lastProgressAt >= 1000) {
-      lastProgressAt = now;
-      await db
-        .update(renders)
-        .set({ progress: mapped, updatedAt: new Date() })
-        .where(eq(renders.id, renderId));
-    }
+    await db
+      .update(renders)
+      .set({ progress: mapped, updatedAt: new Date() })
+      .where(eq(renders.id, renderId));
   };
 };
 
@@ -264,6 +347,7 @@ const runLegacyRender = async (
   projectId: string,
   userId: string,
   tempPath: string,
+  timeoutMs: number,
 ) => {
   const [render] = await db.select().from(renders).where(eq(renders.id, renderId));
   if (!render) throw new Error('Render not found');
@@ -312,6 +396,7 @@ const runLegacyRender = async (
     spec,
     assets: renderAssets,
     outputPath: tempPath,
+    timeoutMs,
     onProgress: trackProgress(db, renderId),
   });
   await storeRenderOutput(db, storage, renderId, projectId, userId, tempPath);
@@ -331,6 +416,7 @@ const runSceneDocumentRender = async (
   projectId: string,
   userId: string,
   tempPath: string,
+  timeoutMs: number,
 ) => {
   const [render] = await db.select().from(renders).where(eq(renders.id, renderId));
   if (!render) throw new Error('Render not found');
@@ -361,6 +447,7 @@ const runSceneDocumentRender = async (
     definitions: snapshot.definitions,
     assets: renderAssets,
     outputPath: tempPath,
+    timeoutMs,
     onProgress: trackSceneProgress(db, renderId),
   });
   await storeRenderOutput(db, storage, renderId, projectId, userId, tempPath);

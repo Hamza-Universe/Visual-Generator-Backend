@@ -156,3 +156,127 @@ export const decideRenderFailure = (
     error: error instanceof Error ? error.message : 'Render failed',
   };
 };
+
+/* ------------------------------------------------------------------------ */
+/* Operational policy (Stage 3H): concurrency, retries, timeouts, cleanup.  */
+/* Shared by the API producer and the worker consumer so both sides agree.   */
+/* ------------------------------------------------------------------------ */
+
+/** BullMQ queue carrying render jobs. Single queue; no sharding. */
+export const RENDER_QUEUE_NAME = 'render';
+
+/**
+ * Safe operational defaults. Rendering is CPU/memory/browser intensive, so
+ * concurrency starts at 1; retries stay low with exponential backoff; the
+ * timeout bounds the longest expected production render with headroom.
+ */
+export const DEFAULT_RENDER_CONCURRENCY = 1;
+export const DEFAULT_RENDER_ATTEMPTS = 2;
+export const DEFAULT_RENDER_BACKOFF_MS = 5000;
+export const DEFAULT_RENDER_TIMEOUT_MS = 600000;
+export const RENDER_COMPLETED_RETENTION = 100;
+export const RENDER_FAILED_RETENTION = 100;
+
+export interface RenderJobOptionsInput {
+  attempts?: number;
+  backoffMs?: number;
+}
+
+const positiveIntOr = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+
+/**
+ * Centralized BullMQ job options for render jobs. Priority-ready: BullMQ
+ * accepts a `priority` per `queue.add` call, so future scheduling needs no
+ * queue redesign — only a producer-side option.
+ */
+export const defaultRenderJobOptions = (input: RenderJobOptionsInput = {}): {
+  attempts: number;
+  backoff: { type: 'exponential'; delay: number };
+  removeOnComplete: number;
+  removeOnFail: number;
+} => ({
+  attempts: positiveIntOr(input.attempts, DEFAULT_RENDER_ATTEMPTS),
+  backoff: {
+    type: 'exponential',
+    delay: positiveIntOr(input.backoffMs, DEFAULT_RENDER_BACKOFF_MS),
+  },
+  removeOnComplete: RENDER_COMPLETED_RETENTION,
+  removeOnFail: RENDER_FAILED_RETENTION,
+});
+
+export type RenderFailureClass = 'retryable' | 'non-retryable' | 'cancelled';
+
+const NON_RETRYABLE_PATTERNS = [
+  /invalid/i,
+  /not found/i,
+  /no owner/i,
+  /no registry component/i,
+  /missing/i,
+  /unknown/i,
+  /must reference/i,
+  /forbidden/i,
+  /unauthorized/i,
+  /bad input/i,
+  /terminal/i,
+];
+
+/**
+ * Failure classification driving retry decisions.
+ *
+ * - cancelled: cooperative shutdown signal — never retried, never failed.
+ * - non-retryable: deterministic validation/ownership failures (incl.
+ *   Zod errors) that cannot succeed on another attempt.
+ * - retryable: everything else — browser/ffmpeg crashes, timeouts (usually
+ *   load-dependent), storage/DB blips. Timeouts are explicitly retryable.
+ */
+export const classifyRenderError = (error: unknown): RenderFailureClass => {
+  const name =
+    error && typeof error === 'object' && 'name' in error
+      ? String((error as { name?: unknown }).name ?? '')
+      : '';
+  if (name === 'RenderCancelledError') return 'cancelled';
+  if (name === 'ZodError') return 'non-retryable';
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (/timed?\s?out/i.test(message)) return 'retryable';
+  if (NON_RETRYABLE_PATTERNS.some((pattern) => pattern.test(message))) {
+    return 'non-retryable';
+  }
+  return 'retryable';
+};
+
+export type RetryDecision = 'retry' | 'fail' | 'cancelled';
+
+/**
+ * Pure retry decision: cancelled never retries; non-retryable fails fast;
+ * retryable failures retry until attempts run out. Late cancellation (row
+ * already `cancelled`) wins over every other outcome.
+ */
+export const resolveRetryDecision = (input: {
+  classification: RenderFailureClass;
+  attemptsMade: number;
+  maxAttempts: number;
+  rowCancelled?: boolean;
+}): RetryDecision => {
+  if (input.classification === 'cancelled' || input.rowCancelled) return 'cancelled';
+  if (input.classification === 'non-retryable') return 'fail';
+  const made = Number.isInteger(input.attemptsMade) && input.attemptsMade >= 0
+    ? input.attemptsMade
+    : 0;
+  const max = Number.isInteger(input.maxAttempts) && input.maxAttempts >= 1
+    ? input.maxAttempts
+    : 1;
+  return made + 1 >= max ? 'fail' : 'retry';
+};
+
+/** In-process temp layout: crash orphans are identifiable and sweepable. */
+export const RENDER_TEMP_DIR_NAME = '.render-tmp';
+
+export const buildRenderTempPaths = (
+  storageDir: string,
+  tempId: string,
+): { outputPath: string; publicDir: string } => {
+  const normalized = storageDir.endsWith('/') ? storageDir.slice(0, -1) : storageDir;
+  const outputPath = `${normalized}/${RENDER_TEMP_DIR_NAME}/${tempId}.mp4`;
+  return { outputPath, publicDir: `${outputPath}.public` };
+};

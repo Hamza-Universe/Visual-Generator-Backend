@@ -13,7 +13,7 @@ import {
   type RegistryComponent,
 } from '@app/schema';
 import { AppError, sendError } from '../errors.js';
-import { createRenderQueue } from '../services/queue.js';
+import { createRenderQueue, type RenderQueueOptions } from '../services/queue.js';
 import { toRenderStatusPayload } from '../services/renders.js';
 import { getSceneDocument, requireSceneAccess } from '../services/documents.js';
 import { LocalStorage } from '@app/storage';
@@ -23,8 +23,9 @@ export const registerRenderRoutes = (
   db: Database,
   redisUrl: string,
   storage: LocalStorage,
+  jobOptions: RenderQueueOptions = {},
 ) => {
-  const queue = createRenderQueue(redisUrl);
+  const queue = createRenderQueue(redisUrl, jobOptions);
 
   app.post('/projects/:id/renders', async (request, reply) => {
     try {

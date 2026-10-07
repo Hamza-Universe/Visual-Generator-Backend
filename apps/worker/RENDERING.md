@@ -68,6 +68,52 @@ components, groups) plus the definition map. The worker re-validates the
 snapshot and resolves asset rows at job time — the renderer itself receives
 one coherent, local input.
 
+## Operations (Stage 3H)
+
+Single `render` queue; no sharding, no farm. The DB render record is the
+product source of truth; BullMQ state is operational only; the frontend
+never touches Redis.
+
+- **Concurrency**: `RENDER_WORKER_CONCURRENCY` (default 1 — browser encodes
+  are CPU/memory heavy; 1–8, opt-in). One process = one worker; future
+  scaling = more processes on the same queue, no code changes.
+- **Retries**: `RENDER_ATTEMPTS` (default 2) + `RENDER_BACKOFF_MS`
+  exponential (default 5s), set as BullMQ job options at enqueue (shared
+  builder `defaultRenderJobOptions()`). Retryable = browser/ffmpeg crashes,
+  timeouts, storage/DB blips; the record stays `running` and BullMQ retries
+  from the immutable snapshot. Non-retryable (Zod/validation, missing
+  definitions/assets, ownership) and cancelled outcomes settle immediately
+  via `UnrecoverableError` — a cancelled/failed render is never retried
+  into `done`. Failed BullMQ jobs are retained (100) for inspection.
+- **Timeout**: `RENDER_TIMEOUT_MS` (default 600000) passed to
+  `renderMedia({ timeoutInMilliseconds })` on both paths. Expiry aborts the
+  encode, fails retryably, and cleans up; classified retryable (usually
+  load-dependent).
+- **Stuck recovery**: explicit `lockDuration` with BullMQ auto-renewal
+  while alive; a crashed process stops renewing, the job stalls and is
+  requeued from the snapshot. Temp files live under
+  `<STORAGE_DIR>/.render-tmp/<uuid>.mp4` (unique per attempt, `finally`
+  cleanup on every terminal path); boot sweeps orphans from dead runs.
+  Persistent assets live outside the temp dir and are never swept.
+- **Storage ordering**: Remotion finish → `storage.save` → asset row →
+  `done`. Storage failure means `≠ done`; a crash between asset insert
+  and done-marking can orphan one unreferenced asset row (accepted, rare).
+  One render yields at most one referenced output asset.
+- **Progress**: throttled (~1/sec + final tick); the cancel/status check
+  runs only on throttled ticks — no per-frame DB/Redis work anywhere.
+- **Cancellation**: entry guard, ~1/sec cooperative checks, done-guard in
+  output storage; terminal records immutable, so late callbacks/retries
+  cannot revive them.
+- **Observability**: structured `ready/started/retry/completed/failed/
+  cancelled` worker lines (`renderId`, source, attempt, durationMs) plus
+  the 3G telemetry events (now with `attempt`/`durationMs`). No documents,
+  no secrets in logs. DB-down behavior: record updates throw → the job
+  fails/retries through the normal path.
+- **Future scaling**: same queue + N worker processes (documented
+  boundary). Priority needs no redesign — BullMQ accepts per-`add`
+  priority whenever a scheduling stage wants it. No K8s, autoscaling,
+  locks, or monitoring platform in this stage.
+
 ## Migration boundary (Stage 3G)
 
 Canonical (current production path):

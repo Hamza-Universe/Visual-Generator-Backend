@@ -1,13 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildRenderTempPaths,
   canTransitionRenderStatus,
+  classifyRenderError,
   decideRenderFailure,
+  defaultRenderJobOptions,
   findDuplicateSceneRender,
   isTerminalRenderStatus,
   mapSceneRenderProgress,
   normalizeClientKey,
   normalizeRenderProgress,
+  RENDER_COMPLETED_RETENTION,
+  RENDER_FAILED_RETENTION,
+  RENDER_QUEUE_NAME,
+  RENDER_TEMP_DIR_NAME,
+  DEFAULT_RENDER_ATTEMPTS,
+  DEFAULT_RENDER_BACKOFF_MS,
+  DEFAULT_RENDER_CONCURRENCY,
+  DEFAULT_RENDER_TIMEOUT_MS,
   resolveRenderStart,
+  resolveRetryDecision,
 } from '../src/index.js';
 
 describe('render status model', () => {
@@ -114,5 +126,84 @@ describe('worker lifecycle decisions', () => {
       status: 'failed',
       error: 'Render failed',
     });
+  });
+});
+
+describe('operational policy (Stage 3H)', () => {
+  it('exposes safe shared defaults', () => {
+    expect(RENDER_QUEUE_NAME).toBe('render');
+    expect(DEFAULT_RENDER_CONCURRENCY).toBe(1);
+    expect(DEFAULT_RENDER_ATTEMPTS).toBe(2);
+    expect(DEFAULT_RENDER_BACKOFF_MS).toBe(5000);
+    expect(DEFAULT_RENDER_TIMEOUT_MS).toBe(600000);
+    expect(RENDER_COMPLETED_RETENTION).toBe(100);
+    expect(RENDER_FAILED_RETENTION).toBe(100);
+  });
+
+  it('builds centralized BullMQ job options', () => {
+    expect(defaultRenderJobOptions()).toEqual({
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 5000 },
+      removeOnComplete: 100,
+      removeOnFail: 100,
+    });
+    expect(defaultRenderJobOptions({ attempts: 3, backoffMs: 1000 }).attempts).toBe(3);
+    expect(defaultRenderJobOptions({ attempts: 0 }).attempts).toBe(2);
+  });
+
+  it('classifies failures for retry decisions', () => {
+    expect(classifyRenderError(new Error('Render was cancelled'))).toBe('retryable');
+    const cancelled = new Error('Render was cancelled');
+    cancelled.name = 'RenderCancelledError';
+    expect(classifyRenderError(cancelled)).toBe('cancelled');
+    const zod = new Error('bad');
+    zod.name = 'ZodError';
+    expect(classifyRenderError(zod)).toBe('non-retryable');
+    expect(classifyRenderError(new Error('Invalid SceneDocument render snapshot: x'))).toBe(
+      'non-retryable',
+    );
+    expect(classifyRenderError(new Error('No registry component found for x'))).toBe(
+      'non-retryable',
+    );
+    expect(classifyRenderError(new Error('Referenced asset x is missing or not owned'))).toBe(
+      'non-retryable',
+    );
+    // Timeouts are explicitly retryable (usually load-dependent).
+    expect(classifyRenderError(new Error('Render timed out after 600000ms'))).toBe('retryable');
+    // Browser/ffmpeg/storage/DB blips are transient.
+    expect(classifyRenderError(new Error('browser closed unexpectedly'))).toBe('retryable');
+    expect(classifyRenderError(new Error('ECONNRESET'))).toBe('retryable');
+  });
+
+  it('retries transient failures until attempts run out, never cancelled rows', () => {
+    expect(
+      resolveRetryDecision({ classification: 'retryable', attemptsMade: 0, maxAttempts: 2 }),
+    ).toBe('retry');
+    expect(
+      resolveRetryDecision({ classification: 'retryable', attemptsMade: 1, maxAttempts: 2 }),
+    ).toBe('fail');
+    expect(
+      resolveRetryDecision({ classification: 'non-retryable', attemptsMade: 0, maxAttempts: 3 }),
+    ).toBe('fail');
+    expect(
+      resolveRetryDecision({ classification: 'cancelled', attemptsMade: 0, maxAttempts: 3 }),
+    ).toBe('cancelled');
+    // A late cancellation wins over any other outcome.
+    expect(
+      resolveRetryDecision({
+        classification: 'retryable',
+        attemptsMade: 0,
+        maxAttempts: 3,
+        rowCancelled: true,
+      }),
+    ).toBe('cancelled');
+  });
+
+  it('builds isolated temp paths under a sweepable directory', () => {
+    const paths = buildRenderTempPaths('./storage', 'abc123');
+    expect(paths.outputPath).toBe(`./storage/${RENDER_TEMP_DIR_NAME}/abc123.mp4`);
+    expect(paths.publicDir).toBe(`./storage/${RENDER_TEMP_DIR_NAME}/abc123.mp4.public`);
+    // Distinct attempts never share a temp file (no output confusion).
+    expect(buildRenderTempPaths('./storage', 'other').outputPath).not.toBe(paths.outputPath);
   });
 });

@@ -30,6 +30,10 @@ export interface RenderTelemetryEvent {
   readonly sceneId: string | null;
   /** ISO-8601 timestamp of event construction. */
   readonly timestamp: string;
+  /** 1-based BullMQ attempt that produced this event (worker only). */
+  readonly attempt?: number;
+  /** Wall-clock job duration in ms (terminal worker events only). */
+  readonly durationMs?: number;
 }
 
 export const buildRenderTelemetryEvent = (input: {
@@ -39,6 +43,8 @@ export const buildRenderTelemetryEvent = (input: {
   projectId: string;
   sceneId?: string | null;
   timestamp?: string;
+  attempt?: number;
+  durationMs?: number;
 }): RenderTelemetryEvent => ({
   telemetry: 'render',
   event: input.event,
@@ -47,6 +53,8 @@ export const buildRenderTelemetryEvent = (input: {
   projectId: input.projectId,
   sceneId: input.sceneId ?? null,
   timestamp: input.timestamp ?? new Date().toISOString(),
+  ...(typeof input.attempt === 'number' ? { attempt: input.attempt } : {}),
+  ...(typeof input.durationMs === 'number' ? { durationMs: input.durationMs } : {}),
 });
 
 export type TelemetrySink = (event: RenderTelemetryEvent) => void;

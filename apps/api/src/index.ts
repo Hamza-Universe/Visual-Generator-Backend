@@ -87,7 +87,10 @@ export const buildApp = (config = loadConfig()) => {
     apiKey: config.GEMINI_API_KEY,
     model: config.AI_MODEL,
   });
-  registerRenderRoutes(app, db, config.REDIS_URL, storage);
+  registerRenderRoutes(app, db, config.REDIS_URL, storage, {
+    attempts: config.RENDER_ATTEMPTS,
+    backoffMs: config.RENDER_BACKOFF_MS,
+  });
   registerErrorHandler(app);
   return app;
 };

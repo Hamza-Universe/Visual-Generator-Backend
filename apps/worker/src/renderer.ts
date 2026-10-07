@@ -25,6 +25,8 @@ export const renderProject = async (input: {
   spec: VideoSpec;
   assets: RenderInputAsset[];
   outputPath: string;
+  /** Optional wall-clock bound per encode (Stage 3H); absent = Remotion default. */
+  timeoutMs?: number;
   onProgress: (progress: number) => Promise<void> | void;
 }) => {
   const entryPoint = fileURLToPath(
@@ -59,6 +61,7 @@ export const renderProject = async (input: {
       codec: 'h264',
       outputLocation: input.outputPath,
       inputProps,
+      timeoutInMilliseconds: input.timeoutMs,
       onProgress: ({ progress }) =>
         input.onProgress(Math.round(progress * 100)),
     });
@@ -88,6 +91,8 @@ export const renderSceneDocument = async (input: {
   background?: string;
   assets: RenderInputAsset[];
   outputPath: string;
+  /** Optional wall-clock bound per encode (Stage 3H); absent = Remotion default. */
+  timeoutMs?: number;
   onProgress: (progress: number) => Promise<void> | void;
 }) => {
   // Fail fast on invalid production documents (never silently corrupt a render).
@@ -134,6 +139,7 @@ export const renderSceneDocument = async (input: {
       codec: 'h264',
       outputLocation: input.outputPath,
       inputProps,
+      timeoutInMilliseconds: input.timeoutMs,
       onProgress: ({ progress }) =>
         input.onProgress(Math.round(progress * 100)),
     });

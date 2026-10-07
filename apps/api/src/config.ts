@@ -1,9 +1,25 @@
 import { z } from 'zod';
+import {
+  DEFAULT_RENDER_ATTEMPTS,
+  DEFAULT_RENDER_BACKOFF_MS,
+} from '@app/schema';
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   STORAGE_DIR: z.string().min(1),
+  /**
+   * Stage 3H producer retry policy (BullMQ job options set at enqueue).
+   * Genuinely transient failures (browser/encode crashes, timeouts under
+   * load, storage/DB blips) retry with exponential backoff; deterministic
+   * validation failures fail fast via UnrecoverableError in the worker.
+   */
+  RENDER_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(
+    DEFAULT_RENDER_ATTEMPTS,
+  ),
+  RENDER_BACKOFF_MS: z.coerce.number().int().positive().default(
+    DEFAULT_RENDER_BACKOFF_MS,
+  ),
   GEMINI_API_KEY: z.string().optional().default(''),
   AI_PROVIDER: z.enum(['manual', 'gemini']).default('manual'),
   AI_MODEL: z.string().optional().default('gemini-3.8-flash'),
