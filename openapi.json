@@ -2392,7 +2392,9 @@
     },
     "/projects/{id}/renders": {
       "post": {
-        "summary": "Create a render job for a project",
+        "summary": "Create a render job for a project (legacy/deprecated VideoSpec path)",
+        "description": "Legacy/deprecated path: renders the project's VideoSpec. Prefer POST /scenes/{id}/renders (SceneDocument rendering = current production path). This endpoint still works and returns Deprecation: true.",
+        "deprecated": true,
         "security": [
           {
             "bearerAuth": []
@@ -2667,7 +2669,8 @@
         }
       },
       "post": {
-        "summary": "Enqueue a production SceneDocument render",
+        "summary": "Enqueue a production SceneDocument render (current production path)",
+        "description": "SceneDocument rendering = current production path. VideoSpec rendering via POST /projects/{id}/renders = legacy/deprecated path.",
         "security": [
           {
             "bearerAuth": []

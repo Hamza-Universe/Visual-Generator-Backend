@@ -6,7 +6,9 @@ import { and, eq } from 'drizzle-orm';
 import { LocalStorage } from '@app/storage';
 import {
   VideoSpecSchema,
+  buildRenderTelemetryEvent,
   decideRenderFailure,
+  emitRenderTelemetry,
   isSceneDocumentSnapshot,
   mapSceneRenderProgress,
   parseSceneRenderSnapshot,
@@ -90,6 +92,22 @@ export const worker = new Worker<{ renderId: string }>(
       } else {
         await runLegacyRender(db, storage, render.id, render.projectId, project.userId, tempPath);
       }
+      // Stage 3G: lifecycle telemetry with an explicit source so legacy vs
+      // current usage is directly comparable. Payload-free by construction.
+      emitRenderTelemetry(
+        (event) => console.info(JSON.stringify(event)),
+        buildRenderTelemetryEvent({
+          event: 'succeeded',
+          source: isSceneDocumentSnapshot(render.specSnapshot)
+            ? 'scene-document'
+            : 'video-spec',
+          renderId: render.id,
+          projectId: render.projectId,
+          sceneId: isSceneDocumentSnapshot(render.specSnapshot)
+            ? render.specSnapshot.document.id
+            : null,
+        }),
+      );
       return { renderId: render.id, status: 'done' };
     } catch (error) {
       // Stage 3F: cancellation stays `cancelled` (never `failed`, never
@@ -104,6 +122,24 @@ export const worker = new Worker<{ renderId: string }>(
         current?.status,
         error instanceof RenderCancelledError,
       );
+      // Cancellations are intentional, not failures — only failed outcomes
+      // emit the failure event so legacy/current failure rates stay honest.
+      if (decision.status === 'failed') {
+        emitRenderTelemetry(
+          (event) => console.info(JSON.stringify(event)),
+          buildRenderTelemetryEvent({
+            event: 'failed',
+            source: isSceneDocumentSnapshot(render.specSnapshot)
+              ? 'scene-document'
+              : 'video-spec',
+            renderId: render.id,
+            projectId: render.projectId,
+            sceneId: isSceneDocumentSnapshot(render.specSnapshot)
+              ? render.specSnapshot.document.id
+              : null,
+          }),
+        );
+      }
       await db
         .update(renders)
         .set({

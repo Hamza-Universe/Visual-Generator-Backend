@@ -4,7 +4,9 @@ import { assets, components, projects, renders } from '@app/db';
 import type { Database } from '@app/db';
 import {
   VideoSpecSchema,
+  buildRenderTelemetryEvent,
   canTransitionRenderStatus,
+  emitRenderTelemetry,
   findDuplicateSceneRender,
   normalizeClientKey,
   validateSpec,
@@ -76,6 +78,20 @@ export const registerRenderRoutes = (
         })
         .returning();
       await queue.add('render', { renderId: render.id }, { jobId: render.id });
+      // Stage 3G: legacy VideoSpec usage telemetry (event only — never the
+      // spec payload) plus deprecation metadata. Existing clients unaffected.
+      emitRenderTelemetry(
+        (event) => request.log.info(event),
+        buildRenderTelemetryEvent({
+          event: 'requested',
+          source: 'video-spec',
+          renderId: render.id,
+          projectId: id,
+          sceneId: null,
+        }),
+      );
+      void reply.header('Deprecation', 'true');
+      void reply.header('Link', '</scenes/{id}/renders>; rel="successor-version"');
       return reply.code(202).send(render);
     } catch (error) {
       return sendError(reply, error);
@@ -145,6 +161,18 @@ export const registerRenderRoutes = (
         })
         .returning();
       await queue.add('render', { renderId: render.id }, { jobId: render.id });
+      // Stage 3G: render-source telemetry uses the same event shape as the
+      // legacy path so usage is directly comparable (scene-document = current).
+      emitRenderTelemetry(
+        (event) => request.log.info(event),
+        buildRenderTelemetryEvent({
+          event: 'requested',
+          source: 'scene-document',
+          renderId: render.id,
+          projectId: scene.projectId,
+          sceneId,
+        }),
+      );
       return reply.code(202).send(render);
     } catch (error) {
       return sendError(reply, error);

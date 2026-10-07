@@ -4,3 +4,4 @@ export * from './validate.js';
 export * from './document.js';
 export * from './snapshot.js';
 export * from './renderLifecycle.js';
+export * from './renderTelemetry.js';

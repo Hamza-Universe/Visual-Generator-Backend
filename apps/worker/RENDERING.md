@@ -68,6 +68,77 @@ components, groups) plus the definition map. The worker re-validates the
 snapshot and resolves asset rows at job time — the renderer itself receives
 one coherent, local input.
 
+## Migration boundary (Stage 3G)
+
+Canonical (current production path):
+
+```text
+SceneDocument → SceneRenderSnapshot → BullMQ → SceneDocumentProduction → Remotion
+```
+
+Legacy (deprecated, functional):
+
+```text
+VideoSpec → legacy render endpoint → legacy renderer → VisualDiagram → Remotion
+```
+
+### Every remaining VideoSpec reference (audited)
+
+| Area | Reference | Role |
+| ---- | --------- | ---- |
+| `apps/worker/src/renderer.ts` | `renderProject()` | legacy entrypoint, targets `VisualDiagram` |
+| `apps/worker/src/remotion/video.tsx` | `VideoComposition` + helpers | legacy composition (untouched) |
+| `apps/worker/src/remotion/index.tsx` | `VisualDiagram` registration | legacy composition target |
+| `apps/worker/src/index.ts` | `runLegacyRender()` branch | legacy job path (non-snapshot rows) |
+| `apps/api/src/routes/renders.ts` | `POST /projects/:id/renders` | legacy endpoint (deprecated, 202 + `Deprecation: true`) |
+| `apps/api/src/routes/projects.ts` | `project.spec` validation | project spec storage (VideoSpec content) |
+| `apps/api/src/routes/generate.ts` + `services/ai/*` | generation/validation | AI pipeline produces VideoSpec (out of scope) |
+| `packages/schema/src/spec.ts`, `validate.ts` | `VideoSpecSchema`, `validateSpec` | legacy model (kept) |
+| Frontend `pages/EditorPage.tsx` + `useRenders` | project render queue UI | deliberate legacy surface for project-spec videos |
+| MCP `create_render` | `POST /projects/:id/renders` | legacy production dependency (kept compatible) |
+| MCP `validate_spec`/`submit_spec`/`generate_spec` | project specs | AI/spec pipeline (kept) |
+| MCP `get_render`, `GET /renders/:id`, file/history endpoints | — | source-neutral, shared by both paths |
+
+The scene canvas (`SceneEditorPage` → `SceneRenderPanel` → `POST
+/scene/:id/renders`) uses SceneDocument rendering exclusively.
+
+### Telemetry
+
+Structured `{"telemetry":"render", event, source, renderId, projectId,
+sceneId, timestamp}` lines (never payloads): API `request.log.info` on
+`requested`; worker `console.info` on `succeeded`/`failed` (cancellations
+excluded so failure rates stay honest). Builders/emitter:
+`packages/schema/src/renderTelemetry.ts`.
+
+### Deprecation signals
+
+- `POST /projects/:id/renders` returns `Deprecation: true` + `Link:
+  </scenes/{id}/renders>; rel="successor-version"`. Clients unaffected.
+- OpenAPI marks it `deprecated: true`; the scene endpoint is documented as
+  the current production path.
+
+### VideoSpec removal readiness checklist
+
+```text
+VideoSpec removal is safe when:
+
+[ ] no frontend production calls (BLOCKED: project EditorPage render queue)
+[ ] no MCP production dependency (BLOCKED: create_render → legacy endpoint)
+[ ] no active API consumers (verify via telemetry: zero video-spec events)
+[ ] AI/generate pipeline migrated off VideoSpec (BLOCKED: out of scope)
+[ ] project.spec storage migrated (BLOCKED: out of scope)
+[ ] legacy tests isolated (OK: validate/snapshot-routing tests are independent)
+[ ] telemetry shows zero/acceptable usage (pending observation window)
+[ ] migration documentation exists (OK: this file + OpenAPI)
+[ ] rollback path understood (OK: removal = code deletion only; rows already
+    rendered keep working since snapshots are self-contained)
+```
+
+**Verdict: VideoSpec is NOT currently safe to remove.** Blockers are the
+project-page render queue, the MCP `create_render` tool, and the
+AI/generation pipeline that produces `VideoSpec` content. Nothing was
+deleted in this stage; the legacy path renders exactly as before.
+
 ## Lifecycle (Stage 3F)
 
 ```text
