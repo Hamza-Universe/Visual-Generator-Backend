@@ -1,5 +1,14 @@
 import type { Database } from '@app/db';
 import {
+  compileMotion,
+  resolveLayout,
+  type LayoutContainerRef,
+  type LayoutIntent,
+  type MotionCompileRequest,
+  type MotionPlanItem,
+  type MotionRawKeyframeOp,
+} from '@app/render';
+import {
   CreateGroupInputSchema,
   CreateInstanceInputSchema,
   SceneDocumentSchema,
@@ -21,6 +30,12 @@ import {
   requireSceneAccess,
   updateInstance,
 } from '../services/documents.js';
+import {
+  instanceIdsInGroup,
+  layoutCanvasOf,
+  resolveMotionScope,
+} from './docScope.js';
+import { buildMotionTargets, validateMotionOperation } from './motion.js';
 import {
   AIScenePlanSchema,
   type AISceneOperation,
@@ -80,6 +95,56 @@ const resolveGroupTarget = (
   return null;
 };
 
+// ---------------------------------------------------------------------------
+// Stage 4C — semantic layout helpers
+// ---------------------------------------------------------------------------
+
+type LayoutScopeRef = { instanceId?: string; clientKey?: string };
+type LayoutGroupScopeRef = { groupId?: string; groupClientKey?: string };
+type LayoutContainerInput =
+  | {
+      kind: 'canvas' | 'instance' | 'group';
+      instanceId?: string;
+      instanceClientKey?: string;
+      groupId?: string;
+      groupClientKey?: string;
+    }
+  | undefined;
+
+/**
+ * The connector reference pair (from/to) declared by the authorized
+ * registry — drives flow ordering, connector re-anchoring, and
+ * connector-aware overlap semantics in the engine.
+ */
+const connectorRefPair = (
+  definitions: AIPlanDefinition[],
+): [string, string] | undefined => {
+  const props = new Set(definitions.flatMap((definition) => definition.refProps ?? []));
+  return props.has('from') && props.has('to') ? ['from', 'to'] : undefined;
+};
+
+/** Resolve a parsed container ref (plan-local clientKeys → real ids). */
+const layoutContainerOf = (
+  container: LayoutContainerInput,
+  instanceKeys: ReadonlyMap<string, string>,
+  groupKeys: ReadonlyMap<string, string>,
+): LayoutContainerRef | undefined => {
+  if (!container) return undefined;
+  if (container.kind === 'canvas') return { kind: 'canvas' };
+  if (container.kind === 'instance') {
+    const id =
+      container.instanceId ??
+      (container.instanceClientKey
+        ? instanceKeys.get(container.instanceClientKey)
+        : undefined);
+    return id ? { kind: 'instance', instanceId: id } : { kind: 'instance' };
+  }
+  const id =
+    container.groupId ??
+    (container.groupClientKey ? groupKeys.get(container.groupClientKey) : undefined);
+  return id ? { kind: 'group', groupId: id } : { kind: 'group' };
+};
+
 const checkProps = (
   definition: AIPlanDefinition,
   props: Record<string, unknown>,
@@ -127,6 +192,57 @@ export const validateScenePlan = (input: {
   const createdGroupKeys = new Set<string>();
   const seenClientKeys = new Set<string>();
   const timeline = resolveSceneTimeline(document);
+
+  // --- Stage 4D motion validation state ----------------------------------
+  /** Identities (doc ids or plan clientKeys) deleted earlier in this plan. */
+  const deletedInstanceIds = new Set<string>();
+  const deletedGroupIds = new Set<string>();
+  /** Motion windows collected so far, for order-independent conflicts. */
+  const motionItems: MotionPlanItem[] = [];
+  /** Plan-wide clientKeys (for resolving raw-op identities before the walk). */
+  const planCreatedKeys = new Set(
+    plan.operations.flatMap((operation) =>
+      operation.type === 'createInstance' || operation.type === 'createGroup'
+        ? [operation.clientKey]
+        : [],
+    ),
+  );
+  /**
+   * Pre-scan of the plan's raw keyframe operations: conflicts between a
+   * motion window and an addAnimationTrack/addKeyframe/deleteKeyframe frame
+   * are order-independent, so every raw frame is collected before any
+   * operation is validated. Identities resolve exactly like motion targets
+   * (doc ids, request-scoped clientKeys, plan clientKeys).
+   */
+  const rawKeyframeOps: MotionRawKeyframeOp[] = [];
+  plan.operations.forEach((operation, operationIndex) => {
+    if (
+      operation.type !== 'addAnimationTrack' &&
+      operation.type !== 'addKeyframe' &&
+      operation.type !== 'deleteKeyframe'
+    ) {
+      return;
+    }
+    const targetId =
+      operation.instanceId ??
+      (operation.clientKey
+        ? (usedClientKeys?.get(operation.clientKey) ??
+          (planCreatedKeys.has(operation.clientKey) ? operation.clientKey : ''))
+        : '');
+    const frames =
+      operation.type === 'addAnimationTrack'
+        ? operation.keyframes.map((keyframe) => keyframe.frame)
+        : operation.type === 'addKeyframe'
+          ? [operation.keyframe.frame]
+          : [operation.frame];
+    rawKeyframeOps.push({
+      opIndex: operationIndex,
+      type: operation.type,
+      targetId,
+      property: operation.property,
+      frames,
+    });
+  });
 
   const claimKey = (key: string | undefined, opIndex: number, what: string): boolean => {
     if (!key) return true;
@@ -193,6 +309,7 @@ export const validateScenePlan = (input: {
           issues.push({ opIndex, path: 'instanceId', code: 'AI_OPERATION_INVALID', message: 'Instance does not exist in this scene' });
           break;
         }
+        deletedInstanceIds.add(target);
         // Never orphan references: reject deleting an instance that other
         // document instances point at.
         const referenced = document.components.some((c) => {
@@ -208,7 +325,9 @@ export const validateScenePlan = (input: {
         const target = resolveGroupTarget(op, docGroupIds, createdGroupKeys);
         if (!target) {
           issues.push({ opIndex, path: 'groupId', code: 'AI_OPERATION_INVALID', message: 'Group does not exist in this scene' });
+          break;
         }
+        deletedGroupIds.add(target);
         break;
       }
       case 'updateInstance':
@@ -268,6 +387,123 @@ export const validateScenePlan = (input: {
         } else if (op.targetInstanceId && op.targetInstanceId === target) {
           issues.push({ opIndex, path: 'targetInstanceId', code: 'AI_OPERATION_INVALID', message: 'An instance cannot reference itself' });
         }
+        break;
+      }
+      case 'layout': {
+        const hasScope =
+          (op.targets !== undefined && op.targets.length > 0) ||
+          Boolean(op.groupId) ||
+          Boolean(op.groupClientKey) ||
+          op.all === true;
+        if (!hasScope) {
+          issues.push({
+            opIndex,
+            path: 'targets',
+            code: 'AI_OPERATION_INVALID',
+            message: 'layout requires targets, a group scope, or all=true',
+          });
+        }
+        (op.targets ?? []).forEach((target: LayoutScopeRef, targetIndex: number) => {
+          if (!resolveInstanceTarget(target, docInstanceIds, createdInstanceKeys)) {
+            issues.push({
+              opIndex,
+              path: `targets.${targetIndex}`,
+              code: 'AI_OPERATION_INVALID',
+              message: 'Instance does not exist in this scene',
+            });
+          }
+        });
+        if (op.groupId && !docGroupIds.has(op.groupId)) {
+          issues.push({ opIndex, path: 'groupId', code: 'AI_OPERATION_INVALID', message: 'Group does not exist in this scene' });
+        } else if (op.groupClientKey && !createdGroupKeys.has(op.groupClientKey)) {
+          issues.push({ opIndex, path: 'groupClientKey', code: 'AI_OPERATION_INVALID', message: 'Group clientKey is not created earlier in this plan' });
+        }
+        const container = (op.intent as { container?: LayoutContainerInput } | undefined)
+          ?.container;
+        if (container?.kind === 'instance') {
+          const ref: LayoutScopeRef = {
+            instanceId: container.instanceId,
+            clientKey: container.instanceClientKey,
+          };
+          if (!resolveInstanceTarget(ref, docInstanceIds, createdInstanceKeys)) {
+            issues.push({
+              opIndex,
+              path: 'intent.container',
+              code: 'AI_OPERATION_INVALID',
+              message: 'Layout container instance does not exist in this scene',
+            });
+          }
+        } else if (container?.kind === 'group') {
+          const ref: LayoutGroupScopeRef = {
+            groupId: container.groupId,
+            groupClientKey: container.groupClientKey,
+          };
+          if (!resolveGroupTarget(ref, docGroupIds, createdGroupKeys)) {
+            issues.push({
+              opIndex,
+              path: 'intent.container',
+              code: 'AI_OPERATION_INVALID',
+              message: 'Layout container group does not exist in this scene',
+            });
+          }
+        }
+        break;
+      }
+      case 'motion': {
+        // Stage 4D: resolve the scope through the shared helper (exact
+        // apply-time semantics: in-plan deletions are honored, plan-created
+        // groups only contain members created before this operation), then
+        // let the deterministic engine issue MOTION_* issues and planned
+        // windows for order-independent conflict detection.
+        const scope = resolveMotionScope({
+          targets: op.targets ?? null,
+          groupId: op.groupId ?? null,
+          groupClientKey: op.groupClientKey ?? null,
+          resolveTarget: (ref) => {
+            const id = resolveInstanceTarget(ref, docInstanceIds, createdInstanceKeys);
+            return id && !deletedInstanceIds.has(id) ? id : null;
+          },
+          resolveGroup: (ref) => {
+            const id = resolveGroupTarget(ref, docGroupIds, createdGroupKeys);
+            return id && !deletedGroupIds.has(id) ? id : null;
+          },
+          groupMembers: (identity) => {
+            if (docGroupIds.has(identity)) {
+              return [...instanceIdsInGroup(document, identity)].filter(
+                (id) => !deletedInstanceIds.has(id),
+              );
+            }
+            // Plan-created group: members are the instances created before
+            // THIS operation — validation and application must agree.
+            const members: string[] = [];
+            for (const earlier of plan.operations.slice(0, opIndex)) {
+              if (earlier.type !== 'createInstance') continue;
+              if (earlier.groupClientKey !== identity) continue;
+              if (deletedInstanceIds.has(earlier.clientKey)) continue;
+              members.push(earlier.clientKey);
+            }
+            return members;
+          },
+        });
+        if ('error' in scope) {
+          issues.push({
+            opIndex,
+            path: scope.error.path,
+            code: scope.error.code,
+            message: scope.error.message,
+          });
+          break;
+        }
+        const validated = validateMotionOperation({
+          op,
+          opIndex,
+          ids: scope.ids,
+          document,
+          priorItems: motionItems,
+          rawOps: rawKeyframeOps,
+        });
+        issues.push(...validated.issues);
+        motionItems.push(...validated.items);
         break;
       }
       case 'addAnimationTrack':
@@ -562,6 +798,139 @@ export const applyScenePlan = async (input: {
           animation: { ...current.animation, tracks },
         });
         applied.push({ index, type: op.type, id });
+        break;
+      }
+      case 'layout': {
+        // Stage 4C: resolve semantic layout intent through the deterministic
+        // engine, then write the resulting geometry through the single
+        // document mutation mechanism (updateInstance). The engine returns
+        // minimal deltas — only changed geometry is written.
+        const doc = await currentDocument();
+        const idSet = new Set<string>();
+        if (op.all === true) {
+          for (const component of doc.components) idSet.add(component.id);
+        }
+        for (const target of op.targets ?? []) idSet.add(instanceIdOf(target, op));
+        if (op.groupId || op.groupClientKey) {
+          const groupId = groupIdOf(op);
+          if (!groupId) {
+            throw new AppError('AI_OPERATION_INVALID', 'layout group could not be resolved', 422);
+          }
+          for (const id of instanceIdsInGroup(doc, groupId)) idSet.add(id);
+        }
+        // Resolve plan-local clientKeys in the container ref, then run the
+        // engine with the scene canvas + connector-aware reference pair.
+        const containerInput = 'container' in op.intent ? op.intent.container : undefined;
+        const container = containerInput
+          ? layoutContainerOf(containerInput, instanceKeys, groupKeys)
+          : undefined;
+        const intent: LayoutIntent = container
+          ? ({ ...op.intent, container } as LayoutIntent)
+          : op.intent;
+        const canvas = layoutCanvasOf(doc);
+        const refProps = connectorRefPair(definitions);
+        const result = resolveLayout({
+          document: doc,
+          targets: [...idSet],
+          intent,
+          ...(canvas ? { canvas } : {}),
+          constrainToCanvas: op.constrainToCanvas,
+          resolveCollisions: op.resolveCollisions,
+          ...(refProps ? { refProps } : {}),
+        });
+        for (const change of result.changes) {
+          await updateInstance(db, change.id, userId, {
+            position: change.position,
+            ...(change.size ? { size: change.size } : {}),
+          });
+        }
+        applied.push({ index, type: op.type, id: null });
+        break;
+      }
+      case 'motion': {
+        // Stage 4D: compile semantic motion intent into ordinary animation
+        // tracks with the deterministic engine, then write each target's
+        // merged track set through the single document mutation mechanism.
+        // Scope resolution mirrors validation exactly (real ids now that
+        // plan clientKeys have been resolved by earlier operations).
+        const doc = await currentDocument();
+        const docIds = new Set(doc.components.map((c) => c.id));
+        const docGroupIds = new Set(doc.groups.map((g) => g.id));
+        const scope = resolveMotionScope({
+          targets: op.targets ?? null,
+          groupId: op.groupId ?? null,
+          groupClientKey: op.groupClientKey ?? null,
+          resolveTarget: (ref) => {
+            const id =
+              ref.instanceId ??
+              (ref.clientKey ? instanceKeys.get(ref.clientKey) : undefined);
+            return id && docIds.has(id) ? id : null;
+          },
+          resolveGroup: (ref) => {
+            const id =
+              ref.groupId ??
+              (ref.groupClientKey ? groupKeys.get(ref.groupClientKey) : undefined);
+            return id && docGroupIds.has(id) ? id : null;
+          },
+          groupMembers: (identity) => [...instanceIdsInGroup(doc, identity)],
+        });
+        if ('error' in scope) {
+          throw new AppError(scope.error.code, scope.error.message, 422, [
+            {
+              opIndex: index,
+              path: scope.error.path,
+              code: scope.error.code,
+              message: scope.error.message,
+            },
+          ]);
+        }
+        const { targets, missing } = buildMotionTargets(doc, scope.ids, {
+          synthesizeMissing: false,
+        });
+        if (missing.length > 0) {
+          throw new AppError(
+            'MOTION_TARGET_NOT_FOUND',
+            `Motion targets missing after apply: ${missing.join(', ')}`,
+            422,
+          );
+        }
+        const compiled = compileMotion({
+          primitive: op.primitive,
+          options: (op.options ?? null) as MotionCompileRequest['options'],
+          timing: (op.timing ?? null) as MotionCompileRequest['timing'],
+          choreography: (op.choreography ?? null) as MotionCompileRequest['choreography'],
+          targets,
+          timeline: resolveSceneTimeline(doc),
+          canvas: layoutCanvasOf(doc) ?? null,
+        });
+        if (compiled.issues.length > 0) {
+          const first = compiled.issues[0];
+          throw new AppError(
+            first.code,
+            `motion operation ${index} failed to compile: ${first.message}`,
+            422,
+            compiled.issues,
+          );
+        }
+        for (const target of compiled.targets) {
+          const current = doc.components.find((c) => c.id === target.id);
+          if (!current) throw new AppError('NOT_FOUND', 'Component instance not found', 404);
+          // Render keyframes carry an optional easing; the document schema's
+          // output shape has it required (default 'linear' — semantically
+          // identical for the omitted case).
+          const tracks: AnimationTrack[] = target.tracks.map((track) => ({
+            property: track.property,
+            keyframes: track.keyframes.map((keyframe) => ({
+              frame: keyframe.frame,
+              value: keyframe.value,
+              easing: keyframe.easing ?? 'linear',
+            })),
+          }));
+          await updateInstance(db, target.id, userId, {
+            animation: { ...current.animation, tracks },
+          });
+        }
+        applied.push({ index, type: op.type, id: null });
         break;
       }
     }

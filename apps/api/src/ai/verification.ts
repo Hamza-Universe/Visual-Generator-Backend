@@ -1,11 +1,15 @@
 import { z } from 'zod';
-import type { SceneDocument } from '@app/schema';
+import { MOTION_MAX_ISSUES, verifyMotionApplication, type MotionCompileRequest } from '@app/render';
+import { resolveSceneTimeline, type SceneDocument } from '@app/schema';
 import {
   boxesOverlap,
   findOverlaps,
   findSceneOverlaps,
   getInstanceBounds,
 } from './tools.js';
+import { instanceIdsInGroup, layoutCanvasOf, resolveMotionScope } from './docScope.js';
+import { buildMotionTargets } from './motion.js';
+import type { AISceneOperation } from './operations.js';
 
 /**
  * Deterministic result verification (Stage 4B).
@@ -241,6 +245,83 @@ export const verifySceneExpectations = (input: {
       } else if (!docIds.has(value)) {
         push(`Reference prop "${prop}" of ${id} points at missing instance ${value}`);
       }
+    }
+  }
+
+  return { passed: issues.length === 0, issues };
+};
+
+/**
+ * Application-side motion verification (Stage 4D): for every `motion`
+ * operation in the applied plan, recompile the motion deterministically
+ * against the POST-apply document and diff the stored keyframes against the
+ * compiled expectations inside each motion window. The model cannot
+ * self-declare that its motion landed — this is the machine check.
+ *
+ * Issues are prefixed `motion: ` so they are distinguishable in the
+ * combined agent verification, and are bounded by MOTION_MAX_ISSUES.
+ */
+export const verifyAppliedMotion = (input: {
+  document: SceneDocument;
+  operations: readonly AISceneOperation[];
+  /** clientKey → real id for objects created earlier in this request. */
+  clientKeyMap?: ReadonlyMap<string, string>;
+}): AIAgentVerificationOutcome => {
+  const { document, operations, clientKeyMap } = input;
+  const issues: string[] = [];
+  const push = (message: string): void => {
+    if (issues.length < MOTION_MAX_ISSUES) issues.push(`motion: ${message}`);
+  };
+
+  const motionOperations = operations.filter((op) => op.type === 'motion');
+  if (motionOperations.length === 0) return { passed: true, issues: [] };
+
+  const docIds = new Set(document.components.map((c) => c.id));
+  const docGroupIds = new Set(document.groups.map((g) => g.id));
+  const timeline = resolveSceneTimeline(document);
+  const canvas = layoutCanvasOf(document) ?? null;
+
+  for (const op of motionOperations) {
+    if (op.type !== 'motion') continue;
+    const scope = resolveMotionScope({
+      targets: op.targets ?? null,
+      groupId: op.groupId ?? null,
+      groupClientKey: op.groupClientKey ?? null,
+      resolveTarget: (ref) => {
+        if (ref.instanceId) return docIds.has(ref.instanceId) ? ref.instanceId : null;
+        return ref.clientKey ? (clientKeyMap?.get(ref.clientKey) ?? null) : null;
+      },
+      resolveGroup: (ref) => {
+        if (ref.groupId) return docGroupIds.has(ref.groupId) ? ref.groupId : null;
+        return ref.groupClientKey
+          ? (clientKeyMap?.get(ref.groupClientKey) ?? null)
+          : null;
+      },
+      groupMembers: (identity) =>
+        docGroupIds.has(identity) ? [...instanceIdsInGroup(document, identity)] : [],
+    });
+    if ('error' in scope) {
+      push(scope.error.message);
+      continue;
+    }
+    const { targets, missing } = buildMotionTargets(document, scope.ids, {
+      synthesizeMissing: false,
+    });
+    if (missing.length > 0) {
+      push(`targets missing after apply: ${missing.join(', ')}`);
+      continue;
+    }
+    const result = verifyMotionApplication({
+      primitive: op.primitive,
+      options: (op.options ?? null) as Record<string, unknown> | null,
+      timing: (op.timing ?? null) as MotionCompileRequest['timing'],
+      choreography: (op.choreography ?? null) as MotionCompileRequest['choreography'],
+      targets,
+      timeline,
+      canvas,
+    });
+    if (!result.passed) {
+      for (const issue of result.issues) push(issue);
     }
   }
 

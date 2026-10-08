@@ -25,20 +25,33 @@ export interface TimelineMetadata {
   durationFrames: number;
 }
 
-export type EasingName = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+export type EasingName =
+  | 'linear'
+  | 'easeIn'
+  | 'easeOut'
+  | 'easeInOut'
+  | 'easeInQuad'
+  | 'easeOutQuad'
+  | 'easeInCubic'
+  | 'easeOutCubic'
+  | 'easeInBack'
+  | 'easeOutBack';
 
 export const EASING_NAMES: readonly EasingName[] = [
   'linear',
   'easeIn',
   'easeOut',
   'easeInOut',
+  'easeInQuad',
+  'easeOutQuad',
+  'easeInCubic',
+  'easeOutCubic',
+  'easeInBack',
+  'easeOutBack',
 ] as const;
 
 export const isEasingName = (value: unknown): value is EasingName =>
-  value === 'linear' ||
-  value === 'easeIn' ||
-  value === 'easeOut' ||
-  value === 'easeInOut';
+  typeof value === 'string' && (EASING_NAMES as readonly string[]).includes(value);
 
 export type AnimatableProperty =
   | 'position.x'

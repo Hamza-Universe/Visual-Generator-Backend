@@ -31,7 +31,20 @@ export const TimingSchema = z.object({
   startFrame: z.number().int().min(0).optional(),
   durationFrames: z.number().int().min(0).optional(),
 });
-export const TimelineEasingSchema = z.enum(['linear', 'easeIn', 'easeOut', 'easeInOut']);
+// Base four plus the Stage 4D motion-easing variants. `spring` is NOT an
+// easing name — it is a motion-engine curve option (see @app/render motion).
+export const TimelineEasingSchema = z.enum([
+  'linear',
+  'easeIn',
+  'easeOut',
+  'easeInOut',
+  'easeInQuad',
+  'easeOutQuad',
+  'easeInCubic',
+  'easeOutCubic',
+  'easeInBack',
+  'easeOutBack',
+]);
 export const AnimatablePropertySchema = z.enum([
   'position.x',
   'position.y',

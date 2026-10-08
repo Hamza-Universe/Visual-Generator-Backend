@@ -19,6 +19,7 @@ import {
 } from './apply.js';
 import {
   AIAgentVerificationSchema,
+  verifyAppliedMotion,
   verifySceneExpectations,
   type AIAgentVerificationOutcome,
 } from './verification.js';
@@ -659,6 +660,20 @@ export const runSceneAgent = async (input: {
         expectations: decision.verification,
         clientKeyMap: usedClientKeys,
       });
+      // Stage 4D: motion is verified application-side too — the compiled
+      // keyframes are diffed against the stored document, and any mismatch
+      // fails this iteration's verification regardless of the model's claims.
+      const motionOutcome = verifyAppliedMotion({
+        document: currentDocument,
+        operations: plan?.operations ?? [],
+        clientKeyMap: usedClientKeys,
+      });
+      if (motionOutcome.issues.length > 0) {
+        verification = {
+          passed: verification.passed && motionOutcome.passed,
+          issues: [...verification.issues, ...motionOutcome.issues],
+        };
+      }
       iterationSummaries.push({
         iteration,
         planOperations,

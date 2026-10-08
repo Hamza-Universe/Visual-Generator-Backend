@@ -7,9 +7,9 @@
  */
 
 /** AI context contract version. Bump when prompt/context semantics change. */
-export const AI_CONTEXT_VERSION = '1' as const;
+export const AI_CONTEXT_VERSION = '3' as const;
 
-export const SCENE_AUTHOR_SYSTEM_PROMPT_V1 = `You are a visual scene authoring model (context contract v1).
+export const SCENE_AUTHOR_SYSTEM_PROMPT_V3 = `You are a visual scene authoring model (context contract v3).
 
 You do not generate React, JSX, Remotion, HTML, CSS, SVG, or executable code.
 You operate on a structured visual document called a SceneDocument.
@@ -21,10 +21,11 @@ Rules:
 4. Every reference (for example Arrow from/to) must point to an existing instance ID from the scene, or to a clientKey created earlier in the same plan. Never use scene IDs as visual endpoint references.
 5. Prefer editing existing instances when the user asks for modifications. Do not recreate the whole scene.
 6. Do not mutate objects outside the requested task. Keep plans minimal.
-7. Positions are absolute canvas coordinates. Use deterministic layout operations where available instead of guessing pixel-perfect placement.
-8. Animation uses property tracks with keyframes on integer frames within the scene duration. Use only the supported easing names.
-9. Omit optional fields you do not need. Never include executable code, markup, or styling languages in any field.
-10. If the request cannot be expressed with the available operations, return a plan with zero operations rather than invalid operations.`;
+7. Prefer the "layout" operation for arranging multiple objects: it expresses semantic intent (horizontal, vertical, grid, center, stack, align, distribute, flow, fitText, constrain) that a deterministic engine resolves to coordinates. Fall back to absolute canvas coordinates (moveInstance) only for precise single-object placement. Overlapping bounding boxes are allowed for layered compositions (backgrounds, overlays, highlights, decorations); mark intentional overlaps with style.layoutOverlap="intentional".
+8. Prefer the "motion" operation for animation: name a supported primitive (fadeIn, scaleIn, slideIn, popIn, fadeOut, scaleOut, slideOut, move, scale, resize, rotate, fade, pulse, bounce, shake, scaleEmphasis), give timing in seconds ({start?, delay?, duration?, end?}), optional primitive options, and optional choreography (sequence, parallel, overlap, stagger). A deterministic engine compiles it to timeline keyframes — you never emit keyframes, coordinates, frame numbers, or easing curves for motion. Unsupported primitives (wipe, reveal, draw, type, blur, color/text/shape change, morph, camera effects) are rejected with a deterministic error instead of being faked.
+9. Raw animation uses property tracks with keyframes on integer frames within the scene duration. Use only the supported easing names: linear, easeIn, easeOut, easeInOut, easeInQuad, easeOutQuad, easeInCubic, easeOutCubic, easeInBack, easeOutBack.
+10. Omit optional fields you do not need. Never include executable code, markup, or styling languages in any field.
+11. If the request cannot be expressed with the available operations, return a plan with zero operations rather than invalid operations.`;
 
 export interface BuiltSystemPrompt {
   version: typeof AI_CONTEXT_VERSION;
@@ -33,7 +34,7 @@ export interface BuiltSystemPrompt {
 
 export const buildSystemPrompt = (): BuiltSystemPrompt => ({
   version: AI_CONTEXT_VERSION,
-  text: SCENE_AUTHOR_SYSTEM_PROMPT_V1,
+  text: SCENE_AUTHOR_SYSTEM_PROMPT_V3,
 });
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,10 @@ export const buildSystemPrompt = (): BuiltSystemPrompt => ({
 /**
  * Agent context contract version. Separate from AI_CONTEXT_VERSION: the
  * bounded agent adds iterations, budgets, tools, and observations on top
- * of the Stage 4A scene context pack, whose version stays "1".
+ * of the Stage 4A scene context pack. The agent contract itself is
+ * unchanged in Stages 4C/4D — the agent simply inherits the `layout`
+ * (Stage 4C) and `motion` (Stage 4D) operation vocabulary through
+ * AGENT_SCENE_INSTRUCTIONS.
  */
 export const AI_AGENT_CONTEXT_VERSION = '1' as const;
 
@@ -71,9 +75,11 @@ Rules:
  * single-shot plan instructions do not fit the agent's reply shape).
  */
 export const AGENT_SCENE_INSTRUCTIONS = [
-  'Plan operations: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe.',
+  'Plan operations: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe, layout, motion.',
+  'Prefer layout over raw moveInstance coordinates when arranging several objects: {"type":"layout","targets":[...],"intent":{"type":"horizontal"},"constrainToCanvas":true} with intent types horizontal, vertical, grid, center, stack, align, distribute, flow, fitText, constrain, detectOverlaps, resolveCollisions; scope via targets, groupId, or all:true. Overlap is allowed for layered compositions — mark intentional overlaps with style.layoutOverlap="intentional" so verification and collision resolution leave them alone.',
+  'Prefer motion over raw keyframes for animation: {"type":"motion","targets":[...],"primitive":"fadeIn","timing":{"delay":0,"duration":0.6},"options":{...},"choreography":{"mode":"stagger","stagger":0.15}} with primitives fadeIn, scaleIn, slideIn, popIn, fadeOut, scaleOut, slideOut, move, scale, resize, rotate, fade, pulse, bounce, shake, scaleEmphasis; timing in seconds (start/delay/duration/end); choreography modes sequence, parallel, overlap, stagger with orders forward, reverse, centerOut, edgesIn. The deterministic engine compiles motion to timeline keyframes — never send frames, coordinates, or easing curves with it. Unsupported primitives (wipe, reveal, draw, type, blur, color/text/shape change, morph, camera effects) fail with a MOTION_* error instead of being faked.',
   'createInstance requires a unique clientKey and an exact definitionName from the registry above.',
   'Reference existing instances by their id; reference instances created earlier in the SAME plan by clientKey. Objects created in earlier iterations of this request are listed under agent.createdThisRequest with their real ids.',
-  'Verification checks: instances (must exist; optional expectPosition {x?, y?} / expectSize {width?, height?} within 1px tolerance), noOverlap (listed instances), noOverlapWithScene (listed vs everything), overlapPairs (must overlap), references (prop set and pointing at an existing instance).',
+  'Verification checks: instances (must exist; optional expectPosition {x?, y?} / expectSize {width?, height?} within 1px tolerance), noOverlap (listed instances), noOverlapWithScene (listed vs everything), overlapPairs (must overlap), references (prop set and pointing at an existing instance). Motion operations are additionally recompiled and diffed against the stored keyframes application-side.',
   `Each plan holds at most 50 operations.`,
 ].join('\n');
