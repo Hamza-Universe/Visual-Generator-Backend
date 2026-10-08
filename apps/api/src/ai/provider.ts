@@ -49,6 +49,7 @@ export interface AISceneProvider {
   generateStructured<T>(
     request: AIStructuredRequest,
     schema: z.ZodType<T>,
+    options?: { signal?: AbortSignal },
   ): Promise<AIStructuredResult<T>>;
 }
 
@@ -97,6 +98,7 @@ export class OpenRouterProvider implements AISceneProvider {
   async generateStructured<T>(
     request: AIStructuredRequest,
     schema: z.ZodType<T>,
+    options?: { signal?: AbortSignal },
   ): Promise<AIStructuredResult<T>> {
     const baseUrl =
       this.options.baseUrl && this.options.baseUrl.length > 0
@@ -113,6 +115,7 @@ export class OpenRouterProvider implements AISceneProvider {
             'content-type': 'application/json',
             authorization: `Bearer ${this.options.apiKey}`,
           },
+          ...(options?.signal ? { signal: options.signal } : {}),
           body: JSON.stringify({
             model: this.model,
             messages: [

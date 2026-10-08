@@ -57,3 +57,50 @@ export const finishAIRequestMeta = (
   latencyMs: outcome.latencyMs,
   ...(outcome.usage ? { usage: outcome.usage } : {}),
 });
+
+/**
+ * Bounded agent request metadata (Stage 4B). Adds loop-level counters and
+ * the termination reason; still payload-free — no prompts, no scene
+ * contents, no model responses.
+ */
+export interface AIAgentRequestMeta extends AIRequestMeta {
+  iterations?: number;
+  toolCalls?: number;
+  modelCalls?: number;
+  operationCount?: number;
+  terminationStatus?: string;
+}
+
+export const newAIAgentRequestMeta = (input: {
+  sceneId: string;
+  config: Pick<AIModelConfig, 'provider' | 'model'>;
+  contextVersion: string;
+  requestId?: string;
+  startedAt?: string;
+}): AIAgentRequestMeta => ({ ...newAIRequestMeta(input) });
+
+export const finishAIAgentRequestMeta = (
+  meta: AIAgentRequestMeta,
+  outcome: {
+    success: boolean;
+    latencyMs: number;
+    terminationStatus: string;
+    iterations: number;
+    toolCalls: number;
+    modelCalls: number;
+    operationCount: number;
+    errorCode?: string;
+    usage?: AIRequestMeta['usage'];
+  },
+): AIAgentRequestMeta => ({
+  ...meta,
+  success: outcome.success,
+  ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+  latencyMs: outcome.latencyMs,
+  terminationStatus: outcome.terminationStatus,
+  iterations: outcome.iterations,
+  toolCalls: outcome.toolCalls,
+  modelCalls: outcome.modelCalls,
+  operationCount: outcome.operationCount,
+  ...(outcome.usage ? { usage: outcome.usage } : {}),
+});

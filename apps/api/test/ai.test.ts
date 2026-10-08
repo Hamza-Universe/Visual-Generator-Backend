@@ -807,6 +807,15 @@ describe('AI OpenAPI contract', () => {
     );
   });
 
+  it('documents the Stage 4B bounded agent endpoint with auth and responses', () => {
+    const execute = document.paths['/scenes/{id}/ai/execute']?.post;
+    expect(execute).toBeDefined();
+    expect(execute?.security).toEqual([{ bearerAuth: [] }]);
+    expect(Object.keys(execute?.responses ?? {})).toEqual(
+      expect.arrayContaining(['200', '400', '404', '503']),
+    );
+  });
+
   it('exposes the plan and apply schemas', () => {
     for (const name of [
       'AIPlanRequest',
@@ -818,6 +827,30 @@ describe('AI OpenAPI contract', () => {
     ]) {
       expect(document.components.schemas[name], name).toBeDefined();
     }
+  });
+
+  it('exposes the bounded agent schemas', () => {
+    for (const name of [
+      'AIExecuteRequest',
+      'AIExecuteResponse',
+      'AIAgentVerification',
+      'AIExecuteMeta',
+    ]) {
+      expect(document.components.schemas[name], name).toBeDefined();
+    }
+    const response = document.components.schemas.AIExecuteResponse as {
+      properties: { status: { enum?: string[] } };
+    };
+    expect(response.properties.status.enum).toEqual([
+      'completed',
+      'max_iterations',
+      'validation_failed',
+      'tool_error',
+      'provider_error',
+      'application_error',
+      'unauthorized',
+      'timeout',
+    ]);
   });
 });
 
@@ -857,6 +890,46 @@ describe('AI plan application', () => {
       { index: 0, type: 'createInstance', id: 'created-instance-id' },
     ]);
     expect(result.document.components).toHaveLength(2);
+  });
+
+  it('rejects clientKeys already consumed earlier in the same request', () => {
+    const usedClientKeys = new Map([['eq', 'created-instance-id']]);
+    const issues = validateScenePlan({
+      document,
+      definitions,
+      plan: {
+        operations: [
+          {
+            type: 'createInstance',
+            clientKey: 'eq',
+            definitionName: 'Label',
+            props: { text: 'Again' },
+          },
+        ],
+      },
+      usedClientKeys,
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].path).toBe('clientKey');
+    expect(issues[0].message).toContain('already created in this request');
+    expect(issues[0].message).toContain('created-instance-id');
+
+    // The same key without the request-scoped map stays valid (Stage 4A).
+    const fresh = validateScenePlan({
+      document,
+      definitions,
+      plan: {
+        operations: [
+          {
+            type: 'createInstance',
+            clientKey: 'eq',
+            definitionName: 'Label',
+            props: { text: 'Once' },
+          },
+        ],
+      },
+    });
+    expect(fresh).toEqual([]);
   });
 
   it('applies nothing when a plan fails validation', async () => {

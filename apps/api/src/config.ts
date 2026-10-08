@@ -31,6 +31,14 @@ const EnvSchema = z.object({
   OPENROUTER_API_KEY: z.string().optional().default(''),
   OPENROUTER_MODEL: z.string().optional().default('openrouter/free'),
   OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
+  /**
+   * Stage 4B bounded agent budgets. Application-owned: never accepted from
+   * the frontend and never expandable by the model.
+   */
+  AI_AGENT_MAX_ITERATIONS: z.coerce.number().int().min(1).max(5).default(3),
+  AI_AGENT_TOOL_BUDGET: z.coerce.number().int().min(0).max(64).default(16),
+  AI_AGENT_OPERATION_BUDGET: z.coerce.number().int().min(1).max(500).default(100),
+  AI_AGENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(60_000),
   CORS_ORIGIN: z.string().min(1).default('http://localhost:5173'),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(500),
   API_BASE_URL: z.string().url().default('http://localhost:3001'),

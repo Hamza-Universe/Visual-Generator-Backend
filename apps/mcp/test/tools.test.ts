@@ -41,6 +41,7 @@ describe('MCP tools', () => {
       'get_render',
       'plan_scene_edit',
       'apply_scene_plan',
+      'execute_scene_edit',
     ]);
   });
 
@@ -125,6 +126,21 @@ describe('MCP tools', () => {
     const applyInit = fetchMock.mock.calls[1][1] as RequestInit;
     expect(JSON.parse(String(applyInit.body))).toEqual({
       plan: { operations: [{ type: 'moveInstance' }] },
+    });
+
+    // Stage 4B bounded agent is exposed the same way: a thin proxy; every
+    // budget, authorization, and validation decision stays in the API.
+    await handlers.get('execute_scene_edit')!({
+      sceneId,
+      prompt: 'Move the equation below the title without overlapping it.',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://api.test/scenes/${sceneId}/ai/execute`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const executeInit = fetchMock.mock.calls[2][1] as RequestInit;
+    expect(JSON.parse(String(executeInit.body))).toEqual({
+      prompt: 'Move the equation below the title without overlapping it.',
     });
   });
 });

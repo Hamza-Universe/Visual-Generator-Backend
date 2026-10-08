@@ -261,4 +261,23 @@ export const registerTools = (
         }),
       ),
   );
+  server.registerTool(
+    'execute_scene_edit',
+    {
+      description:
+        'POST /scenes/:id/ai/execute. Runs the bounded scene-editing agent: allowlisted read-tool inspection, structured plan, server-side validation, application through the existing domain mutations, and deterministic verification — with fixed iteration/tool/operation/time budgets. Returns an explicit status (completed, max_iterations, validation_failed, tool_error, provider_error, …); non-completed outcomes may still have applied earlier iterations.',
+      inputSchema: {
+        sceneId: z.string().uuid(),
+        prompt: z.string().min(1).max(4000),
+      },
+    },
+    async ({ sceneId, prompt }) =>
+      result(
+        await json(base, token, `/scenes/${sceneId}/ai/execute`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        }),
+      ),
+  );
 };

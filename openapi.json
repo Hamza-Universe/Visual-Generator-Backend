@@ -722,6 +722,203 @@
           "document"
         ]
       },
+      "AIExecuteRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Natural-language scene editing request for the bounded agent."
+          },
+          "selection": {
+            "type": "object",
+            "description": "Optional editor selection supplied as context.",
+            "properties": {
+              "instanceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 50
+              }
+            }
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "AIAgentVerification": {
+        "type": "object",
+        "description": "Deterministic verification result computed by the application against the authoritative SceneDocument (existence, position/size within 1px tolerance, overlaps, references) — never by the model.",
+        "properties": {
+          "passed": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12
+          }
+        },
+        "required": [
+          "passed",
+          "issues"
+        ]
+      },
+      "AIExecuteMeta": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "sceneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "contextVersion": {
+            "type": "string"
+          },
+          "latencyMs": {
+            "type": "number"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "promptTokens": {
+                "type": "number"
+              },
+              "completionTokens": {
+                "type": "number"
+              },
+              "totalTokens": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "AIExecuteResponse": {
+        "type": "object",
+        "description": "Bounded agent execution result. status is application-decided: completed, max_iterations, validation_failed, tool_error, provider_error, application_error, unauthorized, or timeout. Earlier iterations may have been applied even when status is not completed.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "max_iterations",
+              "validation_failed",
+              "tool_error",
+              "provider_error",
+              "application_error",
+              "unauthorized",
+              "timeout"
+            ]
+          },
+          "iterations": {
+            "type": "integer",
+            "description": "Iterations run (bounded by the server-side iteration limit)."
+          },
+          "toolCalls": {
+            "type": "integer",
+            "description": "Read-tool calls consumed from the request budget."
+          },
+          "modelCalls": {
+            "type": "integer"
+          },
+          "plans": {
+            "type": "array",
+            "description": "Every plan generated this request, including rejected ones.",
+            "items": {
+              "$ref": "#/components/schemas/AIPlan"
+            }
+          },
+          "appliedOperations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "iteration": {
+                  "type": "integer"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "iteration",
+                "index",
+                "type"
+              ]
+            }
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIAgentVerification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document": {
+            "$ref": "#/components/schemas/SceneDocument"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AIExecuteMeta"
+          }
+        },
+        "required": [
+          "status",
+          "iterations",
+          "toolCalls",
+          "modelCalls",
+          "plans",
+          "appliedOperations",
+          "document",
+          "meta"
+        ]
+      },
       "ValidationResult": {
         "type": "object",
         "properties": {
@@ -2959,6 +3156,53 @@
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/ai/execute": {
+      "post": {
+        "summary": "Run the bounded scene-editing agent (inspect → plan → validate → apply → verify → bounded correction)",
+        "description": "Runs one bounded agent request: the model may call only the allowlisted read tools (getScene, findInstances, getInstance, getInstanceBounds, findOverlaps), then proposes a structured plan that is fully validated and applied through the same path as POST /scenes/:id/ai/apply, after which the application re-inspects the document and verifies machine-checkable expectations. Iteration count, tool budget, operation budget, context size, and execution time are fixed server-side; the model and client cannot raise them. Outcomes other than completed (max_iterations, validation_failed, tool_error, provider_error, application_error, unauthorized, timeout) return 200 with an explicit status plus the current document so clients can refresh after any partial application. Pre-execution failures use 400/403/404/503.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIExecuteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded agent execution finished (any status)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIExecuteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "description": "AI model not configured (AI_MODEL_UNAVAILABLE)"
           }
         }
       }

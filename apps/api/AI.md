@@ -1,4 +1,4 @@
-# Scene AI Architecture (Stage 4A)
+# Scene AI Architecture (Stage 4A + Stage 4B bounded agent)
 
 > **AI is a planner, not the rendering engine.** The AI never generates React,
 > Remotion, JSX, HTML, CSS, SVG, or any executable code. Its only output is a
@@ -6,6 +6,8 @@
 > applies to the single canonical visual model: `SceneDocument`.
 
 ## Request flow
+
+Single-shot planning (Stage 4A):
 
 ```
 User Intent
@@ -33,6 +35,33 @@ SceneDocument
 Existing Editor / Preview / Renderer   (unchanged)
 ```
 
+Bounded agent execution (Stage 4B) — one request, application-owned budgets:
+
+```
+POST /scenes/:id/ai/execute
+    ↓
+Authorization first (fetchSceneDocument → 403/404 before any model cost)
+    ↓
+┌─ iteration 1..maxIterations (default 3) ────────────────────────────┐
+│  model turn: { toolCalls }  → allowlisted read tools over the        │
+│                in-memory snapshot → bounded observations             │
+│  or model turn: { plan + verification }                              │
+│       ↓                                                              │
+│  validateScenePlan (fresh document + request-scoped clientKeys)      │
+│       ├─ invalid → feedback to the model, next iteration (no write)  │
+│       ↓ valid                                                       │
+│  applyScenePlan  (the SAME Stage 4A path — one write mechanism)      │
+│       ↓                                                              │
+│  verifySceneExpectations (deterministic: exists/position/size/        │
+│       overlap/references, re-evaluated against the document)         │
+│       ├─ passed → status 'completed', stop                           │
+│       └─ failed → verification feedback, next iteration              │
+└──────────────────────────────────────────────────────────────────────┘
+    ↓
+200 { status, iterations, toolCalls, plans, appliedOperations,
+      verification, failure?, document, meta }
+```
+
 The existing deterministic pipeline is untouched:
 
 ```
@@ -43,17 +72,25 @@ SceneDocument → Timeline evaluator → Render tree → Renderers → Remotion 
 
 ```
 apps/api/src/ai/
-  systemPrompt.ts   versioned system prompt + AI_CONTEXT_VERSION
+  systemPrompt.ts   versioned prompts + AI_CONTEXT_VERSION,
+                    AI_AGENT_CONTEXT_VERSION, SCENE_AGENT_SYSTEM_PROMPT_V1
   operations.ts     AISceneOperation / AIScenePlan Zod schemas (the contract)
   context.ts         selective, capped AI context builder
   registry.ts        component definitions from the real DB registry
   provider.ts        AISceneProvider interface + OpenRouterProvider
+                    (optional AbortSignal for the agent time budget)
   planner.ts         intent → context → provider → validated plan
   apply.ts           pure plan validation + validate-then-apply orchestration
-  observability.ts   payload-free request metadata (id, model, latency, usage)
-  tools.ts           read-only tool harness + deterministic layout math
-apps/api/src/routes/ai.ts   POST /scenes/:id/ai/plan, POST /scenes/:id/ai/apply
-apps/api/scripts/ai-smoke.ts  optional live smoke test (manual, key required)
+                    (+ request-scoped usedClientKeys idempotency)
+  agent.ts           bounded loop: limits, turn schema, context overlay
+  verification.ts    machine-checkable expectations + deterministic evaluator
+  observability.ts   payload-free request metadata (plan/apply + agent)
+  tools.ts           read-only tool harness, deterministic layout math,
+                    and the bounded-agent tool allowlist/executor
+apps/api/src/routes/ai.ts   POST /scenes/:id/ai/plan, POST /scenes/:id/ai/apply,
+                          POST /scenes/:id/ai/execute
+apps/api/scripts/ai-smoke.ts    optional live smoke (plan path)
+apps/api/scripts/agent-smoke.ts optional live smoke (bounded agent)
 ```
 
 ## OpenRouter configuration
@@ -65,6 +102,19 @@ Environment variables (server-side only; never exposed to the frontend):
 | `OPENROUTER_API_KEY` | *(empty)* | Server-side key. When empty, plan requests fail fast with `AI_MODEL_UNAVAILABLE` (503). |
 | `OPENROUTER_MODEL` | `openrouter/free` | Model id. Changing it requires **no** application-code changes. |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Overridable for proxies/tests. |
+
+Bounded-agent budgets (Stage 4B). These are **application-owned**: the
+frontend and the model can never supply or raise them.
+
+| Variable | Default | Bounds | Purpose |
+| --- | --- | --- | --- |
+| `AI_AGENT_MAX_ITERATIONS` | `3` | 1–5 | Hard cap on inspect → plan → apply → verify iterations per request. |
+| `AI_AGENT_TOOL_BUDGET` | `16` | 0–64 | Total read-tool calls across the whole request. |
+| `AI_AGENT_OPERATION_BUDGET` | `100` | 1–500 | Operations across all applied plans in the request (the 50-per-plan cap still applies). |
+| `AI_AGENT_TIMEOUT_MS` | `60000` | 1000–300000 | Wall-clock budget for the whole agent request. |
+
+Two more limits are fixed in code (`DEFAULT_AGENT_LIMITS`): 6 model turns
+per iteration and 2 bounded retries for schema-invalid responses.
 
 The application code depends on the internal `AISceneProvider` interface, not
 on OpenRouter. `resolveAIModelConfig()` centralizes model selection so future
@@ -140,6 +190,84 @@ mid-apply *runtime* failure (e.g. database outage between operations) is the
 residual risk. Introducing a transaction wrapper is a follow-up once the
 domain mutations participate cleanly in one.
 
+## Bounded agentic execution (Stage 4B)
+
+`POST /scenes/:id/ai/execute` runs one bounded request. The model plans and
+reasons; deterministic code stays the authority for application and for
+deciding when the goal is met.
+
+### Loop contract
+
+Each iteration is: **inspect → decide → validate → apply → verify**.
+
+- A *decision* is a Zod-validated turn
+  (`AIAgentTurnSchema`): either `{ toolCalls }` (inspection only) or
+  `{ plan, verification }` / `{ done, verification }`. `verification` is
+  mandatory whenever a plan or `done` is sent — the model must state how
+  success will be measured *before* it applies anything.
+- Tool calls execute first against the current in-memory snapshot;
+  bounded observations are fed back in the next context message.
+- A plan goes through the exact Stage 4A path:
+  `validateScenePlan` → `applyScenePlan` (which re-validates against a fresh
+  document). **Invalid plans are never applied** — they become feedback for
+  the next bounded iteration instead of a partial write.
+- After a successful apply (or a `done`), `verifySceneExpectations`
+  re-evaluates the model's expectations against the authoritative document:
+  instance existence, position/size (1px tolerance), overlaps (listed,
+  listed-vs-scene, required pairs), and reference validity. Passed →
+  `completed`; failed → bounded correction.
+- The loop is request-scoped: no agent state is persisted, no background
+  job, no memory across requests.
+
+### Statuses (application-decided, returned with 200)
+
+| Status | Meaning |
+| --- | --- |
+| `completed` | Verification passed; nothing further to do. |
+| `max_iterations` | Iteration budget spent; last verification still failing. |
+| `validation_failed` | Plans (or model responses) kept failing validation; feedback budget exhausted. |
+| `tool_error` | Tool/turn budget exhausted or too many failed tool calls. |
+| `provider_error` | Provider/network failure — stopped immediately, never blind-retried. |
+| `application_error` | A validated plan failed at runtime mid-apply — stopped; the write is never repeated after an ambiguous failure. |
+| `unauthorized` | Authorization failed (pre-loop → 403/404; at apply time → status here). |
+| `timeout` | Wall-clock budget exceeded — checked before every model call. |
+
+Every non-completed response still includes the **current document** and the
+list of operations applied so far, so clients refresh correctly after a
+partial application.
+
+### Why there is no infinite loop
+
+The loop cannot be extended from inside: `maxIterations` is clamped
+server-side (1–5), turns/iteration and tool calls per turn are capped, the
+tool budget and operation budget are decremented by the harness (the model
+cannot raise them), the deadline is absolute, and every failure mode maps to
+a terminal status. There is no autonomous goal generation — the loop runs
+only against the user's single prompt.
+
+### Idempotency
+
+A request-scoped `clientKey → id` map is threaded through
+`validateScenePlan`/`applyScenePlan`: once a create operation has been
+applied, re-using its `clientKey` in a later iteration is rejected with
+feedback ("already created in this request (id …); address it by id"), so
+bounded corrections can never duplicate an object. The Stage 4A `clientKey`
+render-idempotency semantics are unchanged.
+
+### Read tools
+
+The agent may call exactly these five tools (explicit allowlist in
+`tools.ts`, each with a Zod-validated argument schema and size-capped
+results with explicit truncation flags):
+
+```
+getScene           findInstances        getInstance
+getInstanceBounds  findOverlaps
+```
+
+There is no write tool, no filesystem/shell/SQL/HTTP/JS tool, and unknown
+tool names are rejected as observations rather than executed.
+
 ## Context construction
 
 The context builder is selective and capped — never the repository, never
@@ -166,12 +294,23 @@ and every context pack. Bump it when prompt/context semantics change so
 historical requests remain explainable. The prompt is deliberately small:
 planner rules only — no repository architecture dump.
 
+Stage 4B adds `AI_AGENT_CONTEXT_VERSION = "1"` and
+`SCENE_AGENT_SYSTEM_PROMPT_V1` for the bounded agent. The agent reuses the
+unchanged Stage 4A scene context pack (its version stays `"1"`) and adds an
+agent overlay: iteration/turn counters, remaining budgets, tool specs,
+observations from this iteration, `createdThisRequest` (clientKey → real id),
+prior-iteration summaries, and the last validation/verification/schema
+feedback. Like the scene pack it is capped (8 observations, 10 feedback
+issues per message).
+
 ## Observability
 
-Each plan/apply request logs payload-free metadata: request id, scene id,
-provider, model, context version, timestamp, latency, success/failure, and
-token usage when OpenRouter returns it. Full prompts and responses are never
-logged or stored. No AI history table exists (and none is planned).
+Each plan/apply/execute request logs payload-free metadata: request id, scene
+id, provider, model, context version, timestamp, latency, success/failure,
+and token usage when OpenRouter returns it. Agent requests additionally log
+iterations, tool calls, model calls, applied operation count, and the
+termination status. Full prompts and responses are never logged or stored. No
+AI history table exists (and none is planned).
 
 ## Security boundary
 
@@ -180,51 +319,75 @@ The AI is an **untrusted planner**; the application is the authority.
 - No code execution of any kind: no JavaScript, shell, filesystem, SQL, or
   arbitrary HTTP from the model's output.
 - Scene authorization, component authorization, and reference validation all
-  run in deterministic code around/inside the existing domain layer.
+  run in deterministic code around/inside the existing domain layer. The
+  execute endpoint performs authorization **before** the first model call,
+  and re-checks it inside the apply path on every iteration.
+- Budgets and the tool allowlist are server-side; the model cannot expand
+  its own capabilities, and the client cannot set limits.
 - The API key exists only in server environment configuration.
-- The plan/apply endpoints are authenticated and scope every operation to
-  scenes the caller owns.
-- MCP exposes the same two endpoints as thin proxies; validation stays in
-  the API.
+- The plan/apply/execute endpoints are authenticated and scope every
+  operation to scenes the caller owns.
+- MCP exposes the same endpoints as thin proxies; validation, budgets, and
+  authorization stay in the API.
 
 ## Tool harness
 
-`tools.ts` holds the initial harness: pure read tools (`getSceneSummary`,
-`findInstances`, `getInstanceBounds`, `findOverlaps`) and deterministic
-layout math (`alignInstances`, `distributeInstances`) over an in-memory
-snapshot. Read tools inspect; write intent always flows through validated
-operation plans. This is the seed for a future tool-registry loop — there is
-deliberately **no** autonomous agent loop, retry loop, or memory today.
+`tools.ts` holds the harness: pure read tools (`getSceneSummary`,
+`findInstances`, `getInstance`, `getInstanceBounds`, `findOverlaps`,
+`findSceneOverlaps`) and deterministic layout math (`alignInstances`,
+`distributeInstances`) over an in-memory snapshot. Read tools inspect; write
+intent always flows through validated operation plans.
+
+Stage 4B layers an explicit registry on top: `AGENT_TOOL_SPECS` is the
+allowlist, `executeAgentTool` validates arguments with Zod, bounds every
+result (20 items / 40 overlap pairs / 4000 serialized chars) with an
+explicit `truncated` flag, and returns structured errors for unknown tools
+or bad arguments — which the harness feeds back to the model as
+observations instead of crashing. Tools receive only the document snapshot:
+no database handle, no network, no state mutation.
 
 ## Frontend
 
 `src/components/ai/AiPanel.tsx`: prompt input → **Generate plan** → plan
 preview (operation list, review before mutation) → **Apply plan** → the
-updated document lands in the editor store. Nothing else: no chat history,
+updated document lands in the editor store. Stage 4B adds **Execute**, which
+calls `POST /scenes/:id/ai/execute` and shows one bounded result card:
+termination status, iterations, tool calls, applied-operation count, and the
+verification issues (or "verified"). The document returned by execute is
+always refreshed, including for non-completed statuses. No chat history,
 streaming, model selector, or token dashboard.
 
 ## Testing
 
 `apps/api/test/ai.test.ts` (provider, context, validation, planning,
-application, OpenAPI contract) and
+application, OpenAPI contract), `apps/api/test/agent.test.ts` (bounded loop,
+read tools, safety, idempotency, termination), and
 `apps/mcp/test/tools.test.ts` cover the harness with a **mocked provider**.
-No automated test requires an OpenRouter key or burns free-tier requests.
+Agent tests run the real turn schema, tools, validation, apply, and
+verification against an in-memory mutable document — including the key
+scenarios: one-shot success, an insufficient move corrected in a second
+iteration after deterministic overlap verification, and clean termination at
+the iteration limit. No automated test requires an OpenRouter key or burns
+free-tier requests.
 
-## Optional live smoke test
+## Optional live smoke tests
 
 With `OPENROUTER_API_KEY` set locally:
 
 ```bash
-pnpm --filter @app/api exec tsx scripts/ai-smoke.ts
+pnpm --filter @app/api exec tsx scripts/ai-smoke.ts    # single-shot plan
+pnpm --filter @app/api exec tsx scripts/agent-smoke.ts # bounded agent (seeds a temporary scene)
 ```
 
-Sends exactly one request, validates the returned plan against the fixture
-document, and prints it. Exits with code 2 when no key is configured. The
-automated suite never invokes it.
+Each sends a small number of real requests and prints the outcome. Both exit
+with code 2 when no key is configured. The automated suite never invokes
+them.
 
 ## Future work (not in this stage)
 
 - Primary/fallback model routing (config already carries the model)
-- Write tools + agentic iteration with bounded loops
 - Applying plans transactionally once the domain layer supports it
 - Richer animation operations (the schema/evaluator path is already shared)
+- Stage 4C candidates: deterministic layout assistance for the agent,
+  narration/voice-over over the existing timeline, prompt library,
+  richer verification signals (style/contrast invariants)

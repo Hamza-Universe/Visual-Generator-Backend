@@ -96,6 +96,12 @@ export const buildApp = (config = loadConfig()) => {
     apiKey: config.OPENROUTER_API_KEY,
     model: config.OPENROUTER_MODEL,
     baseUrl: config.OPENROUTER_BASE_URL,
+    agent: {
+      maxIterations: config.AI_AGENT_MAX_ITERATIONS,
+      toolCallBudget: config.AI_AGENT_TOOL_BUDGET,
+      operationBudget: config.AI_AGENT_OPERATION_BUDGET,
+      timeoutMs: config.AI_AGENT_TIMEOUT_MS,
+    },
   });
   registerErrorHandler(app);
   return app;

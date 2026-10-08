@@ -105,14 +105,19 @@ const checkProps = (
 /**
  * Pure plan validation against a document snapshot. Returns every issue
  * found; an empty array means the plan is safe to apply. Never mutates.
+ *
+ * `usedClientKeys` maps clientKeys already consumed earlier in the SAME
+ * request (Stage 4B bounded iterations): re-creating one is rejected so a
+ * retried correction can never duplicate an object that already exists.
  */
 export const validateScenePlan = (input: {
   document: SceneDocument;
   definitions: AIPlanDefinition[];
   plan: AIScenePlan;
+  usedClientKeys?: ReadonlyMap<string, string>;
 }): PlanIssue[] => {
   const issues: PlanIssue[] = [];
-  const { document, definitions, plan } = input;
+  const { document, definitions, plan, usedClientKeys } = input;
   const byName = new Map(definitions.map((d) => [d.name, d]));
   const byId = new Map(document.components.map((c) => [c.id, c]));
   const byDefId = new Map(definitions.map((d) => [d.id, d]));
@@ -125,6 +130,15 @@ export const validateScenePlan = (input: {
 
   const claimKey = (key: string | undefined, opIndex: number, what: string): boolean => {
     if (!key) return true;
+    if (usedClientKeys?.has(key)) {
+      issues.push({
+        opIndex,
+        path: 'clientKey',
+        code: 'AI_OPERATION_INVALID',
+        message: `${what} clientKey "${key}" was already created in this request (id ${usedClientKeys.get(key)}); address it by id instead of creating it again`,
+      });
+      return false;
+    }
     if (seenClientKeys.has(key)) {
       issues.push({
         opIndex,
@@ -321,6 +335,8 @@ const definitionIdFor = (definitions: AIPlanDefinition[], name: string): string 
 /**
  * Validate-then-apply a plan through existing domain mutations. Throws
  * AI_OPERATION_INVALID (422) with zero writes when validation fails.
+ * `usedClientKeys` (optional) rejects clientKeys consumed earlier in the
+ * same request — idempotent bounded retries.
  */
 export const applyScenePlan = async (input: {
   db: Database;
@@ -328,11 +344,17 @@ export const applyScenePlan = async (input: {
   userId: string;
   definitions: AIPlanDefinition[];
   plan: AIScenePlan;
+  usedClientKeys?: ReadonlyMap<string, string>;
 }): Promise<ApplyScenePlanResult> => {
-  const { db, sceneId, userId, definitions, plan } = input;
+  const { db, sceneId, userId, definitions, plan, usedClientKeys } = input;
   await requireSceneAccess(db, sceneId, userId);
   const snapshot = await fetchSceneDocument(db, sceneId, userId);
-  const issues = validateScenePlan({ document: snapshot, definitions, plan });
+  const issues = validateScenePlan({
+    document: snapshot,
+    definitions,
+    plan,
+    ...(usedClientKeys ? { usedClientKeys } : {}),
+  });
   if (issues.length > 0) {
     throw new AppError('AI_OPERATION_INVALID', 'AI plan failed validation; nothing was applied', 422, issues);
   }
