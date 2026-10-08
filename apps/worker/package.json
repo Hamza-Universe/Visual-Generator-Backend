@@ -10,6 +10,7 @@
   "dependencies": {
     "@app/db": "workspace:*",
     "@app/schema": "workspace:*",
+    "@app/render": "workspace:*",
     "@app/storage": "workspace:*",
     "@remotion/bundler": "^4.0.531",
     "@remotion/renderer": "^4.0.531",

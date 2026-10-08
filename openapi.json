@@ -1,0 +1,3698 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Visual Diagram Gen API",
+    "version": "1.0.0",
+    "description": "Backend API for the AI explainer animation tool. This document describes the public HTTP contract used by the frontend and MCP tooling."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3001",
+      "description": "Local development API"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "details"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email"
+        ]
+      },
+      "AuthTokenResponse": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "token"
+        ]
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "object"
+          },
+          "maxComponents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "nullable": true
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "spec",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ProjectList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "Component": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "propsSchema": {
+            "type": "object"
+          },
+          "defaultProps": {
+            "type": "object"
+          },
+          "enterStyles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exitStyles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "colorProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assetProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "displayName",
+          "description",
+          "propsSchema",
+          "defaultProps",
+          "enterStyles",
+          "exitStyles",
+          "colorProps",
+          "refProps",
+          "assetProps",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "video",
+              "image",
+              "logo",
+              "side_video"
+            ]
+          },
+          "originalName": {
+            "type": "string"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "durationSeconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "originalName",
+          "storageKey",
+          "mimeType",
+          "sizeBytes",
+          "createdAt"
+        ]
+      },
+      "Transcript": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "nullable": true
+          },
+          "text": {
+            "type": "string"
+          },
+          "words": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptWord"
+            }
+          },
+          "durationSeconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "text",
+          "words",
+          "createdAt"
+        ]
+      },
+      "TranscriptWord": {
+        "type": "object",
+        "properties": {
+          "word": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "word",
+          "start",
+          "end"
+        ]
+      },
+      "Render": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "sceneId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "clientKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "nullable": true
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "specSnapshot": {
+            "type": "object"
+          },
+          "outputAssetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "status",
+          "progress",
+          "specSnapshot",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "RenderStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sceneId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "outputAssetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "nullable": true
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "scene-document",
+              "video-spec"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "status",
+          "progress",
+          "source",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SceneRenderCreateRequest": {
+        "type": "object",
+        "properties": {
+          "clientKey": {
+            "type": "string",
+            "description": "Optional idempotency key; repeat requests with the same key return the in-flight render instead of creating a duplicate.",
+            "maxLength": 128
+          }
+        }
+      },
+      "AIPlanRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Natural-language scene editing request."
+          },
+          "selection": {
+            "type": "object",
+            "description": "Optional editor selection supplied as context.",
+            "properties": {
+              "instanceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 50
+              }
+            }
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "AIOperation": {
+        "type": "object",
+        "description": "Deterministic, addressable scene operation. Supported types: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe. New instances are addressed by clientKey within the plan.",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "AIPlan": {
+        "type": "object",
+        "description": "Structured AI intent. Temporary planning data, not a second document model; applying it goes through the existing domain mutations.",
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AIOperation"
+            },
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      },
+      "AIPlanMeta": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "sceneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "contextVersion": {
+            "type": "string"
+          },
+          "latencyMs": {
+            "type": "number"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "promptTokens": {
+                "type": "number"
+              },
+              "completionTokens": {
+                "type": "number"
+              },
+              "totalTokens": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "AIPlanResponse": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/AIPlan"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AIPlanMeta"
+          }
+        },
+        "required": [
+          "plan",
+          "meta"
+        ]
+      },
+      "AIApplyRequest": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/AIPlan"
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "AIApplyResponse": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "array",
+            "description": "Operations in applied order, with the concrete ids they produced.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "index",
+                "type"
+              ]
+            }
+          },
+          "document": {
+            "$ref": "#/components/schemas/SceneDocument"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AIPlanMeta"
+          }
+        },
+        "required": [
+          "applied",
+          "document"
+        ]
+      },
+      "AIExecuteRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Natural-language scene editing request for the bounded agent."
+          },
+          "selection": {
+            "type": "object",
+            "description": "Optional editor selection supplied as context.",
+            "properties": {
+              "instanceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 50
+              }
+            }
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "AIAgentVerification": {
+        "type": "object",
+        "description": "Deterministic verification result computed by the application against the authoritative SceneDocument (existence, position/size within 1px tolerance, overlaps, references) — never by the model.",
+        "properties": {
+          "passed": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12
+          }
+        },
+        "required": [
+          "passed",
+          "issues"
+        ]
+      },
+      "AIExecuteMeta": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "sceneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "contextVersion": {
+            "type": "string"
+          },
+          "latencyMs": {
+            "type": "number"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "promptTokens": {
+                "type": "number"
+              },
+              "completionTokens": {
+                "type": "number"
+              },
+              "totalTokens": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "AIExecuteResponse": {
+        "type": "object",
+        "description": "Bounded agent execution result. status is application-decided: completed, max_iterations, validation_failed, tool_error, provider_error, application_error, unauthorized, or timeout. Earlier iterations may have been applied even when status is not completed.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "max_iterations",
+              "validation_failed",
+              "tool_error",
+              "provider_error",
+              "application_error",
+              "unauthorized",
+              "timeout"
+            ]
+          },
+          "iterations": {
+            "type": "integer",
+            "description": "Iterations run (bounded by the server-side iteration limit)."
+          },
+          "toolCalls": {
+            "type": "integer",
+            "description": "Read-tool calls consumed from the request budget."
+          },
+          "modelCalls": {
+            "type": "integer"
+          },
+          "plans": {
+            "type": "array",
+            "description": "Every plan generated this request, including rejected ones.",
+            "items": {
+              "$ref": "#/components/schemas/AIPlan"
+            }
+          },
+          "appliedOperations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "iteration": {
+                  "type": "integer"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "iteration",
+                "index",
+                "type"
+              ]
+            }
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIAgentVerification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document": {
+            "$ref": "#/components/schemas/SceneDocument"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AIExecuteMeta"
+          }
+        },
+        "required": [
+          "status",
+          "iterations",
+          "toolCalls",
+          "modelCalls",
+          "plans",
+          "appliedOperations",
+          "document",
+          "meta"
+        ]
+      },
+      "ValidationResult": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          }
+        },
+        "required": [
+          "valid",
+          "issues"
+        ]
+      },
+      "Issue": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "code",
+          "message"
+        ]
+      },
+      "ProjectCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ProjectUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "minProperties": 1
+      },
+      "ProjectSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "maxComponents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 300,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ComponentWriteRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "propsSchema": {
+            "type": "object"
+          },
+          "defaultProps": {
+            "type": "object"
+          },
+          "enterStyles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exitStyles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "colorProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assetProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "displayName",
+          "description",
+          "propsSchema",
+          "defaultProps",
+          "enterStyles",
+          "exitStyles",
+          "colorProps",
+          "refProps",
+          "assetProps"
+        ]
+      },
+      "ItemsComponentResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Component"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ItemsAssetResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ItemsTranscriptResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Transcript"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ItemsRenderResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Render"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "GenerationRequest": {
+        "type": "object",
+        "properties": {
+          "transcriptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "save": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "gemini",
+              "manual"
+            ]
+          },
+          "apiKey": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 500
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "transcriptId"
+        ]
+      },
+      "ManualPromptRequest": {
+        "type": "object",
+        "properties": {
+          "transcriptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "transcriptId"
+        ]
+      },
+      "ManualSubmitRequest": {
+        "type": "object",
+        "properties": {
+          "transcriptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawResponse": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000000
+          },
+          "save": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "transcriptId",
+          "rawResponse"
+        ]
+      },
+      "GenerationResponse": {
+        "type": "object",
+        "properties": {
+          "spec": {
+            "type": "object"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "spec",
+          "issues",
+          "attempts"
+        ]
+      },
+      "ManualPromptResponse": {
+        "type": "object",
+        "properties": {
+          "promptText": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "promptText"
+        ]
+      },
+      "Scene": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration": {
+            "type": "number",
+            "nullable": true
+          },
+          "meta": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "name"
+        ]
+      },
+      "SceneCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration": {
+            "type": "number",
+            "nullable": true
+          },
+          "meta": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ComponentInstance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sceneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "componentDefinitionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "props": {
+            "type": "object"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "size": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ]
+          },
+          "transform": {
+            "type": "object",
+            "properties": {
+              "rotation": {
+                "type": "number"
+              },
+              "scaleX": {
+                "type": "number"
+              },
+              "scaleY": {
+                "type": "number"
+              }
+            }
+          },
+          "style": {
+            "type": "object"
+          },
+          "visible": {
+            "type": "boolean"
+          },
+          "zIndex": {
+            "type": "integer"
+          },
+          "timing": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number"
+              },
+              "duration": {
+                "type": "number"
+              }
+            }
+          },
+          "animation": {
+            "type": "object",
+            "properties": {
+              "enter": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "exit": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "keyframes": {
+                "type": "array",
+                "items": {}
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sceneId",
+          "componentDefinitionId",
+          "props"
+        ]
+      },
+      "InstanceWriteRequest": {
+        "type": "object",
+        "properties": {
+          "componentDefinitionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "props": {
+            "type": "object"
+          },
+          "position": {
+            "type": "object"
+          },
+          "size": {
+            "type": "object"
+          },
+          "transform": {
+            "type": "object"
+          },
+          "style": {
+            "type": "object"
+          },
+          "visible": {
+            "type": "boolean"
+          },
+          "zIndex": {
+            "type": "integer"
+          },
+          "timing": {
+            "type": "object"
+          },
+          "animation": {
+            "type": "object"
+          }
+        }
+      },
+      "DocumentGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sceneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parentGroupId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "zIndex": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "sceneId",
+          "name"
+        ]
+      },
+      "GroupWriteRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parentGroupId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "zIndex": {
+            "type": "integer"
+          }
+        }
+      },
+      "SceneDocument": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "duration": {
+            "type": "number",
+            "nullable": true
+          },
+          "meta": {
+            "type": "object",
+            "nullable": true
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentInstance"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentGroup"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "components",
+          "groups"
+        ]
+      },
+      "ItemsSceneResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scene"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ItemsInstanceResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentInstance"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "ItemsGroupResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentGroup"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    "parameters": {
+      "ProjectId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "ComponentId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "AssetId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "TranscriptId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "RenderId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "SceneId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Scene id"
+      },
+      "InstanceId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Component instance id"
+      },
+      "GroupId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Group id"
+      },
+      "GroupMemberInstanceId": {
+        "name": "instanceId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Component instance id"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ValidationFailed": {
+        "description": "Semantic validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "FileTooLarge": {
+        "description": "File too large",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ProjectCreated": {
+        "description": "Project created",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Project"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Health check success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "summary": "Register a new user",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12
+                  }
+                },
+                "required": [
+                  "name",
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Login and issue a JWT",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "summary": "Request a password reset token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reset request accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "summary": "Reset a user password using a reset token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 16
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12
+                  }
+                },
+                "required": [
+                  "token",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Get current authenticated user",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  },
+                  "required": [
+                    "user"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/projects": {
+      "get": {
+        "summary": "List projects",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new project",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ProjectCreated"
+          }
+        }
+      }
+    },
+    "/projects/{id}": {
+      "get": {
+        "summary": "Get a project by id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update a project",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a project",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Project deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/projects/{id}/validate": {
+      "post": {
+        "summary": "Validate a spec without saving it",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "spec": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "spec"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/settings": {
+      "patch": {
+        "summary": "Set or clear the project component budget",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/components": {
+      "get": {
+        "summary": "List all components",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Component registry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsComponentResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a component registry entry",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComponentWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created component",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Component"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/components/{id}": {
+      "get": {
+        "summary": "Get a component by id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ComponentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Component",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Component"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update a component",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ComponentId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComponentWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated component",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Component"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a component",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ComponentId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/assets": {
+      "post": {
+        "summary": "Upload an asset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "audio",
+                      "video",
+                      "image",
+                      "logo",
+                      "side_video"
+                    ]
+                  }
+                },
+                "required": [
+                  "file",
+                  "kind"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Asset created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asset"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/FileTooLarge"
+          }
+        }
+      },
+      "get": {
+        "summary": "List assets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "audio",
+                "video",
+                "image",
+                "logo",
+                "side_video"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsAssetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/file": {
+      "get": {
+        "summary": "Download an asset file",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AssetId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binary asset stream",
+            "content": {
+              "audio/*": {},
+              "video/*": {},
+              "image/*": {}
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/assets/{id}": {
+      "delete": {
+        "summary": "Delete an asset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AssetId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Asset deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/assets/{id}/transcribe": {
+      "post": {
+        "summary": "Transcribe an audio/video asset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AssetId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "language": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transcript created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transcripts/{id}": {
+      "get": {
+        "summary": "Read one transcript",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TranscriptId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{id}/transcripts": {
+      "get": {
+        "summary": "List transcripts for an asset",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AssetId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of transcripts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsTranscriptResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/generate": {
+      "post": {
+        "summary": "Generate a video spec using the configured AI provider",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Spec generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/projects/{id}/generate/manual-prompt": {
+      "post": {
+        "summary": "Generate a manual prompt for external AI use",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualPromptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt text generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualPromptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/projects/{id}/generate/manual-submit": {
+      "post": {
+        "summary": "Submit a manually-generated JSON response",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualSubmitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Spec accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/projects/{id}/renders": {
+      "post": {
+        "summary": "Create a render job for a project (legacy/deprecated VideoSpec path)",
+        "description": "Legacy/deprecated path: renders the project's VideoSpec. Prefer POST /scenes/{id}/renders (SceneDocument rendering = current production path). This endpoint still works and returns Deprecation: true.",
+        "deprecated": true,
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Render queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Render"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "get": {
+        "summary": "List render jobs for a project",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of renders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsRenderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/renders/{id}": {
+      "get": {
+        "summary": "Get render status by id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RenderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Render status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Render"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/renders/{id}/file": {
+      "get": {
+        "summary": "Download a completed render file",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RenderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binary video file",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/renders/{id}/status": {
+      "get": {
+        "summary": "Get lean render status for polling",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RenderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Render status without the snapshot payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/renders/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a queued or in-progress render",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RenderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled render",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Render"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/projects/{id}/scenes": {
+      "get": {
+        "summary": "List scenes of a project",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scenes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsSceneResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a scene in a project",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created scene",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scene"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/renders": {
+      "get": {
+        "summary": "List recent renders for a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scene render history (latest first)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsRenderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "summary": "Enqueue a production SceneDocument render (current production path)",
+        "description": "SceneDocument rendering = current production path. VideoSpec rendering via POST /projects/{id}/renders = legacy/deprecated path.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneRenderCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Render queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Render"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "description": "Scene references an unknown component definition"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/ai/plan": {
+      "post": {
+        "summary": "Generate a validated AI scene edit plan (planning only, never mutates)",
+        "description": "Builds selective scene context (document, authorized component definitions, timeline), sends it to the configured OpenRouter model, and validates the structured response against the AI plan schema. The plan is returned for inspection. AI_MODEL_UNAVAILABLE (503) when no API key is configured; AI_PROVIDER_ERROR / AI_INVALID_RESPONSE / AI_SCHEMA_ERROR (502) when the model fails or returns invalid output.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Structured AI operation plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIPlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "description": "AI provider, response, or schema error"
+          },
+          "503": {
+            "description": "AI model not configured (AI_MODEL_UNAVAILABLE)"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/ai/apply": {
+      "post": {
+        "summary": "Apply a previously validated AI plan through the existing domain mutations",
+        "description": "Re-validates the complete plan against a fresh SceneDocument snapshot before any write, then applies each operation sequentially through the existing document service. An invalid plan applies nothing (AI_OPERATION_INVALID, 422). Component authorization and reference validation remain enforced.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan applied; returns the updated SceneDocument",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIApplyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/ai/execute": {
+      "post": {
+        "summary": "Run the bounded scene-editing agent (inspect → plan → validate → apply → verify → bounded correction)",
+        "description": "Runs one bounded agent request: the model may call only the allowlisted read tools (getScene, findInstances, getInstance, getInstanceBounds, findOverlaps), then proposes a structured plan that is fully validated and applied through the same path as POST /scenes/:id/ai/apply, after which the application re-inspects the document and verifies machine-checkable expectations. Iteration count, tool budget, operation budget, context size, and execution time are fixed server-side; the model and client cannot raise them. Outcomes other than completed (max_iterations, validation_failed, tool_error, provider_error, application_error, unauthorized, timeout) return 200 with an explicit status plus the current document so clients can refresh after any partial application. Pre-execution failures use 400/403/404/503.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIExecuteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded agent execution finished (any status)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIExecuteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "description": "AI model not configured (AI_MODEL_UNAVAILABLE)"
+          }
+        }
+      }
+    },
+    "/scenes/{id}": {
+      "get": {
+        "summary": "Get a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scene",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scene"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated scene",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scene"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/document": {
+      "get": {
+        "summary": "Get a scene document (scene with component instances and groups)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scene document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneDocument"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/instances": {
+      "get": {
+        "summary": "List component instances in a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsInstanceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a component instance in a scene (props validated against the definition schema)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentInstance"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/instances/{id}": {
+      "get": {
+        "summary": "Get a component instance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InstanceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentInstance"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update a component instance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InstanceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentInstance"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a component instance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InstanceId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/scenes/{id}/groups": {
+      "get": {
+        "summary": "List groups in a scene",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Groups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsGroupResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a group in a scene (supports nested groups via parentGroupId)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SceneId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentGroup"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/groups/{id}": {
+      "patch": {
+        "summary": "Update a group",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/GroupId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentGroup"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a group",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/GroupId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/groups/{id}/members/{instanceId}": {
+      "post": {
+        "summary": "Add a component instance to a group (same scene required)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/GroupId"
+          },
+          {
+            "$ref": "#/components/parameters/GroupMemberInstanceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentInstance"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove a component instance from its group",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/GroupId"
+          },
+          {
+            "$ref": "#/components/parameters/GroupMemberInstanceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentInstance"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  }
+}

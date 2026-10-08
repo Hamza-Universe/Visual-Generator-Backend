@@ -1,4 +1,6 @@
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+loadDotenv({ path: fileURLToPath(new URL('../../../.env', import.meta.url)) });
 import { createDb, components } from './index.js';
 import { COLOR_PATTERN } from '@app/schema';
 import { eq } from 'drizzle-orm';
@@ -124,6 +126,12 @@ for (const item of seeds) {
     .select({ id: components.id })
     .from(components)
     .where(eq(components.name, item.name));
-  if (found.length === 0) await db.insert(components).values(item);
+  if (found.length === 0)
+    await db.insert(components).values({ ...item, isPublic: true, userId: null });
+  else
+    await db
+      .update(components)
+      .set({ isPublic: true })
+      .where(eq(components.name, item.name));
 }
 process.exit(0);

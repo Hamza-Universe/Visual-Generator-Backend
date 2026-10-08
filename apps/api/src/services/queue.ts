@@ -1,7 +1,18 @@
 import { Queue, QueueEvents } from 'bullmq';
-export const createRenderQueue = (redisUrl: string) => {
+import { RENDER_QUEUE_NAME, defaultRenderJobOptions } from '@app/schema';
+
+export interface RenderQueueOptions {
+  attempts?: number;
+  backoffMs?: number;
+}
+
+export const createRenderQueue = (redisUrl: string, options: RenderQueueOptions = {}) => {
   const url = new URL(redisUrl);
-  const queue = new Queue<{ renderId: string }>('render', {
+  const jobOptions = defaultRenderJobOptions({
+    attempts: options.attempts,
+    backoffMs: options.backoffMs,
+  });
+  const queue = new Queue<{ renderId: string }>(RENDER_QUEUE_NAME, {
     connection: {
       host: url.hostname,
       port: Number(url.port || 6379),
@@ -13,12 +24,13 @@ export const createRenderQueue = (redisUrl: string) => {
       },
     },
     defaultJobOptions: {
-      attempts: 1,
-      removeOnComplete: 100,
-      removeOnFail: 100,
+      attempts: jobOptions.attempts,
+      backoff: jobOptions.backoff,
+      removeOnComplete: jobOptions.removeOnComplete,
+      removeOnFail: jobOptions.removeOnFail,
     },
   });
-  const queueEvents = new QueueEvents('render', {
+  const queueEvents = new QueueEvents(RENDER_QUEUE_NAME, {
     connection: {
       host: url.hostname,
       port: Number(url.port || 6379),

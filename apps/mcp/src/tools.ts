@@ -165,6 +165,42 @@ export const registerTools = (
       ),
   );
   server.registerTool(
+    'get_scene_document',
+    {
+      description: 'GET /scenes/:id/document. Returns one scene with its component instances and groups.',
+      inputSchema: { sceneId: z.string().uuid() },
+    },
+    async ({ sceneId }) =>
+      result(await json(base, token, `/scenes/${sceneId}/document`)),
+  );
+  server.registerTool(
+    'list_scenes',
+    {
+      description: 'GET /projects/:id/scenes. Lists first-class scenes of a project.',
+      inputSchema: { projectId: z.string().uuid() },
+    },
+    async ({ projectId }) =>
+      result(await json(base, token, `/projects/${projectId}/scenes`)),
+  );
+  server.registerTool(
+    'list_scene_instances',
+    {
+      description: 'GET /scenes/:id/instances. Lists component instances in a scene.',
+      inputSchema: { sceneId: z.string().uuid() },
+    },
+    async ({ sceneId }) =>
+      result(await json(base, token, `/scenes/${sceneId}/instances`)),
+  );
+  server.registerTool(
+    'list_scene_groups',
+    {
+      description: 'GET /scenes/:id/groups. Lists groups in a scene.',
+      inputSchema: { sceneId: z.string().uuid() },
+    },
+    async ({ sceneId }) =>
+      result(await json(base, token, `/scenes/${sceneId}/groups`)),
+  );
+  server.registerTool(
     'create_render',
     {
       description:
@@ -186,5 +222,62 @@ export const registerTools = (
     },
     async ({ renderId }) =>
       result(await json(base, token, `/renders/${renderId}`)),
+  );
+  server.registerTool(
+    'plan_scene_edit',
+    {
+      description:
+        'POST /scenes/:id/ai/plan. Generates a structured AI operation plan for review. Planning never mutates the scene; apply the plan separately once reviewed.',
+      inputSchema: {
+        sceneId: z.string().uuid(),
+        prompt: z.string().min(1).max(4000),
+      },
+    },
+    async ({ sceneId, prompt }) =>
+      result(
+        await json(base, token, `/scenes/${sceneId}/ai/plan`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        }),
+      ),
+  );
+  server.registerTool(
+    'apply_scene_plan',
+    {
+      description:
+        'POST /scenes/:id/ai/apply. Re-validates a previously generated operation plan and applies it through the existing domain mutations. An invalid plan applies nothing (422 AI_OPERATION_INVALID).',
+      inputSchema: {
+        sceneId: z.string().uuid(),
+        plan: z.object({ operations: z.array(z.unknown()).max(50) }),
+      },
+    },
+    async ({ sceneId, plan }) =>
+      result(
+        await json(base, token, `/scenes/${sceneId}/ai/apply`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ plan }),
+        }),
+      ),
+  );
+  server.registerTool(
+    'execute_scene_edit',
+    {
+      description:
+        'POST /scenes/:id/ai/execute. Runs the bounded scene-editing agent: allowlisted read-tool inspection, structured plan, server-side validation, application through the existing domain mutations, and deterministic verification — with fixed iteration/tool/operation/time budgets. Returns an explicit status (completed, max_iterations, validation_failed, tool_error, provider_error, …); non-completed outcomes may still have applied earlier iterations.',
+      inputSchema: {
+        sceneId: z.string().uuid(),
+        prompt: z.string().min(1).max(4000),
+      },
+    },
+    async ({ sceneId, prompt }) =>
+      result(
+        await json(base, token, `/scenes/${sceneId}/ai/execute`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        }),
+      ),
   );
 };
