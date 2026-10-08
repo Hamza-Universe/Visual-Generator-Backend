@@ -51,6 +51,9 @@ importers:
       '@app/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@app/render':
+        specifier: workspace:*
+        version: link:../../packages/render
       '@app/schema':
         specifier: workspace:*
         version: link:../../packages/schema

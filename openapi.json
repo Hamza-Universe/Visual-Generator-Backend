@@ -594,7 +594,7 @@
       },
       "AIOperation": {
         "type": "object",
-        "description": "Deterministic, addressable scene operation. Supported types: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe. New instances are addressed by clientKey within the plan.",
+        "description": "Deterministic, addressable scene operation. Supported types: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe, layout. New instances are addressed by clientKey within the plan. layout expresses semantic arrangement intent (horizontal, vertical, grid, center, stack, align, distribute, flow, fitText, constrain, detectOverlaps, resolveCollisions) resolved by the deterministic layout engine.",
         "properties": {
           "type": {
             "type": "string"

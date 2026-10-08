@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   AnimatablePropertySchema,
   InstancePositionSchema,
+  LayoutIntentSchema,
   SizeSchema,
   StyleSchema,
   TimelineKeyframeSchema,
@@ -16,7 +17,8 @@ import {
  * deterministic and addressable; references use real instance IDs or
  * plan-local clientKeys (for instances/groups created earlier in the same
  * plan). The subset below maps 1:1 onto existing domain mutations in
- * `services/documents.ts` plus animation-track shaping (Stage 3D).
+ * `services/documents.ts` plus animation-track shaping (Stage 3D) and the
+ * semantic layout engine (Stage 4C).
  */
 
 const InstanceRefSchema = z.object({
@@ -143,6 +145,41 @@ export const AIDeleteKeyframeOperationSchema = z.object({
   frame: z.number().int().min(0),
 });
 
+/**
+ * Semantic layout (Stage 4C): the AI expresses arrangement INTENT and the
+ * deterministic engine in `@app/render` resolves it to geometry. Prefer this
+ * over raw `moveInstance` coordinates whenever the request is about arranging
+ * multiple objects (rows, grids, centering, stacking, alignment, flow,
+ * text sizing, canvas constraints). Scope is the union of `targets`, the
+ * group's members (via groupId/groupClientKey), and/or the whole scene
+ * (`all`) — at least one scope is required. Raw coordinates remain available
+ * for precise single-object placement.
+ */
+export const AILayoutOperationSchema = z
+  .object({
+    type: z.literal('layout'),
+    /** Explicit instance ids, or clientKeys created earlier in this plan. */
+    targets: z
+      .array(
+        z.object({
+          instanceId: z.string().uuid().optional(),
+          clientKey: z.string().min(1).max(64).optional(),
+        }),
+      )
+      .min(1)
+      .max(200)
+      .optional(),
+    /** Also lay out every member of this group (nested groups included). */
+    ...GroupRefSchema.shape,
+    /** Lay out every instance in the scene. */
+    all: z.boolean().optional(),
+    intent: LayoutIntentSchema,
+    /** Clamp the final positions fully inside the canvas. */
+    constrainToCanvas: z.boolean().default(false),
+    /** Run deterministic collision resolution after the layout (opt-in). */
+    resolveCollisions: z.boolean().default(false),
+  });
+
 export const AISceneOperationSchema = z.discriminatedUnion('type', [
   AICreateInstanceOperationSchema,
   AIUpdateInstanceOperationSchema,
@@ -159,6 +196,7 @@ export const AISceneOperationSchema = z.discriminatedUnion('type', [
   AIAddAnimationTrackOperationSchema,
   AIAddKeyframeOperationSchema,
   AIDeleteKeyframeOperationSchema,
+  AILayoutOperationSchema,
 ]);
 
 export type AISceneOperation = z.infer<typeof AISceneOperationSchema>;

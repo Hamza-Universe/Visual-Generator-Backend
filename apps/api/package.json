@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@app/db": "workspace:*",
+    "@app/render": "workspace:*",
     "@app/schema": "workspace:*",
     "@app/storage": "workspace:*",
     "@google/genai": "latest",

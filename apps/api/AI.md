@@ -150,7 +150,18 @@ moveInstance     resizeInstance
 updateProps      updateStyle
 setVisibility    setZIndex        setReference
 addAnimationTrack  addKeyframe    deleteKeyframe
+layout
 ```
+
+`layout` (Stage 4C) expresses semantic arrangement intent — `horizontal`,
+`vertical`, `grid`, `center`, `stack`, `align`, `distribute`, `flow`,
+`fitText`, `constrain`, `detectOverlaps`, `resolveCollisions` — that the
+deterministic engine in `@app/render` resolves to coordinates. Scope it with
+`targets` (ids or plan `clientKey`s), a group (`groupId`/`groupClientKey`),
+and/or `all: true`; optionally clamp with `constrainToCanvas` or opt into
+`resolveCollisions`. Intentional overlaps (backgrounds, overlays, highlights,
+decorations) are preserved: mark them with `style.layoutOverlap="intentional"`
+and neither verification nor collision resolution will separate them.
 
 Addressing rules:
 
@@ -289,14 +300,15 @@ definitions in the caller's authorized set.
 
 ## System prompt and context versioning
 
-`AI_CONTEXT_VERSION = "1"` in `systemPrompt.ts` labels both the system prompt
+`AI_CONTEXT_VERSION = "2"` in `systemPrompt.ts` labels both the system prompt
 and every context pack. Bump it when prompt/context semantics change so
 historical requests remain explainable. The prompt is deliberately small:
-planner rules only — no repository architecture dump.
+planner rules only — no repository architecture dump. Stage 4C bumped it to
+`"2"` when the semantic `layout` operation and overlap rules were added.
 
 Stage 4B adds `AI_AGENT_CONTEXT_VERSION = "1"` and
 `SCENE_AGENT_SYSTEM_PROMPT_V1` for the bounded agent. The agent reuses the
-unchanged Stage 4A scene context pack (its version stays `"1"`) and adds an
+Stage 4A scene context pack (Stage 4C moved that pack to `"2"`) and adds an
 agent overlay: iteration/turn counters, remaining budgets, tool specs,
 observations from this iteration, `createdThisRequest` (clientKey → real id),
 prior-iteration summaries, and the last validation/verification/schema
@@ -388,6 +400,6 @@ them.
 - Primary/fallback model routing (config already carries the model)
 - Applying plans transactionally once the domain layer supports it
 - Richer animation operations (the schema/evaluator path is already shared)
-- Stage 4C candidates: deterministic layout assistance for the agent,
-  narration/voice-over over the existing timeline, prompt library,
-  richer verification signals (style/contrast invariants)
+- Narration/voice-over over the existing timeline (deterministic layout
+  assistance shipped in Stage 4C), prompt library, richer verification
+  signals (style/contrast invariants)

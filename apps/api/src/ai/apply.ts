@@ -1,4 +1,5 @@
 import type { Database } from '@app/db';
+import { resolveLayout, type LayoutContainerRef, type LayoutIntent } from '@app/render';
 import {
   CreateGroupInputSchema,
   CreateInstanceInputSchema,
@@ -78,6 +79,95 @@ const resolveGroupTarget = (
   if (ref.groupId) return docIds.has(ref.groupId) ? ref.groupId : null;
   if (ref.groupClientKey) return createdKeys.has(ref.groupClientKey) ? ref.groupClientKey : null;
   return null;
+};
+
+// ---------------------------------------------------------------------------
+// Stage 4C — semantic layout helpers
+// ---------------------------------------------------------------------------
+
+type LayoutScopeRef = { instanceId?: string; clientKey?: string };
+type LayoutGroupScopeRef = { groupId?: string; groupClientKey?: string };
+type LayoutContainerInput =
+  | {
+      kind: 'canvas' | 'instance' | 'group';
+      instanceId?: string;
+      instanceClientKey?: string;
+      groupId?: string;
+      groupClientKey?: string;
+    }
+  | undefined;
+
+/** All instance ids belonging to a group, nested subgroups included. */
+const instanceIdsInGroup = (document: SceneDocument, groupId: string): Set<string> => {
+  const parentOf = new Map(
+    document.groups.map((group) => [group.id, group.parentGroupId ?? null]),
+  );
+  const isMember = (candidate: string | null | undefined): boolean => {
+    let cursor = candidate ?? null;
+    const seen = new Set<string>();
+    while (cursor) {
+      if (cursor === groupId) return true;
+      if (seen.has(cursor)) break;
+      seen.add(cursor);
+      cursor = parentOf.get(cursor) ?? null;
+    }
+    return false;
+  };
+  return new Set(
+    document.components
+      .filter((component) => isMember(component.groupId))
+      .map((component) => component.id),
+  );
+};
+
+/**
+ * Canvas for layout: the scene's meta width/height when present, otherwise
+ * undefined so the engine falls back to the canonical WORLD size.
+ */
+const layoutCanvasOf = (
+  document: SceneDocument,
+): { width: number; height: number } | undefined => {
+  const meta = (document.meta ?? {}) as Record<string, unknown>;
+  const width = Number(meta.width);
+  const height = Number(meta.height);
+  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+    return { width, height };
+  }
+  return undefined;
+};
+
+/**
+ * The connector reference pair (from/to) declared by the authorized
+ * registry — drives flow ordering, connector re-anchoring, and
+ * connector-aware overlap semantics in the engine.
+ */
+const connectorRefPair = (
+  definitions: AIPlanDefinition[],
+): [string, string] | undefined => {
+  const props = new Set(definitions.flatMap((definition) => definition.refProps ?? []));
+  return props.has('from') && props.has('to') ? ['from', 'to'] : undefined;
+};
+
+/** Resolve a parsed container ref (plan-local clientKeys → real ids). */
+const layoutContainerOf = (
+  container: LayoutContainerInput,
+  instanceKeys: ReadonlyMap<string, string>,
+  groupKeys: ReadonlyMap<string, string>,
+): LayoutContainerRef | undefined => {
+  if (!container) return undefined;
+  if (container.kind === 'canvas') return { kind: 'canvas' };
+  if (container.kind === 'instance') {
+    const id =
+      container.instanceId ??
+      (container.instanceClientKey
+        ? instanceKeys.get(container.instanceClientKey)
+        : undefined);
+    return id ? { kind: 'instance', instanceId: id } : { kind: 'instance' };
+  }
+  const id =
+    container.groupId ??
+    (container.groupClientKey ? groupKeys.get(container.groupClientKey) : undefined);
+  return id ? { kind: 'group', groupId: id } : { kind: 'group' };
 };
 
 const checkProps = (
@@ -267,6 +357,66 @@ export const validateScenePlan = (input: {
           issues.push({ opIndex, path: 'targetClientKey', code: 'AI_OPERATION_INVALID', message: 'Reference target clientKey is not created earlier in this plan' });
         } else if (op.targetInstanceId && op.targetInstanceId === target) {
           issues.push({ opIndex, path: 'targetInstanceId', code: 'AI_OPERATION_INVALID', message: 'An instance cannot reference itself' });
+        }
+        break;
+      }
+      case 'layout': {
+        const hasScope =
+          (op.targets !== undefined && op.targets.length > 0) ||
+          Boolean(op.groupId) ||
+          Boolean(op.groupClientKey) ||
+          op.all === true;
+        if (!hasScope) {
+          issues.push({
+            opIndex,
+            path: 'targets',
+            code: 'AI_OPERATION_INVALID',
+            message: 'layout requires targets, a group scope, or all=true',
+          });
+        }
+        (op.targets ?? []).forEach((target: LayoutScopeRef, targetIndex: number) => {
+          if (!resolveInstanceTarget(target, docInstanceIds, createdInstanceKeys)) {
+            issues.push({
+              opIndex,
+              path: `targets.${targetIndex}`,
+              code: 'AI_OPERATION_INVALID',
+              message: 'Instance does not exist in this scene',
+            });
+          }
+        });
+        if (op.groupId && !docGroupIds.has(op.groupId)) {
+          issues.push({ opIndex, path: 'groupId', code: 'AI_OPERATION_INVALID', message: 'Group does not exist in this scene' });
+        } else if (op.groupClientKey && !createdGroupKeys.has(op.groupClientKey)) {
+          issues.push({ opIndex, path: 'groupClientKey', code: 'AI_OPERATION_INVALID', message: 'Group clientKey is not created earlier in this plan' });
+        }
+        const container = (op.intent as { container?: LayoutContainerInput } | undefined)
+          ?.container;
+        if (container?.kind === 'instance') {
+          const ref: LayoutScopeRef = {
+            instanceId: container.instanceId,
+            clientKey: container.instanceClientKey,
+          };
+          if (!resolveInstanceTarget(ref, docInstanceIds, createdInstanceKeys)) {
+            issues.push({
+              opIndex,
+              path: 'intent.container',
+              code: 'AI_OPERATION_INVALID',
+              message: 'Layout container instance does not exist in this scene',
+            });
+          }
+        } else if (container?.kind === 'group') {
+          const ref: LayoutGroupScopeRef = {
+            groupId: container.groupId,
+            groupClientKey: container.groupClientKey,
+          };
+          if (!resolveGroupTarget(ref, docGroupIds, createdGroupKeys)) {
+            issues.push({
+              opIndex,
+              path: 'intent.container',
+              code: 'AI_OPERATION_INVALID',
+              message: 'Layout container group does not exist in this scene',
+            });
+          }
         }
         break;
       }
@@ -562,6 +712,53 @@ export const applyScenePlan = async (input: {
           animation: { ...current.animation, tracks },
         });
         applied.push({ index, type: op.type, id });
+        break;
+      }
+      case 'layout': {
+        // Stage 4C: resolve semantic layout intent through the deterministic
+        // engine, then write the resulting geometry through the single
+        // document mutation mechanism (updateInstance). The engine returns
+        // minimal deltas — only changed geometry is written.
+        const doc = await currentDocument();
+        const idSet = new Set<string>();
+        if (op.all === true) {
+          for (const component of doc.components) idSet.add(component.id);
+        }
+        for (const target of op.targets ?? []) idSet.add(instanceIdOf(target, op));
+        if (op.groupId || op.groupClientKey) {
+          const groupId = groupIdOf(op);
+          if (!groupId) {
+            throw new AppError('AI_OPERATION_INVALID', 'layout group could not be resolved', 422);
+          }
+          for (const id of instanceIdsInGroup(doc, groupId)) idSet.add(id);
+        }
+        // Resolve plan-local clientKeys in the container ref, then run the
+        // engine with the scene canvas + connector-aware reference pair.
+        const containerInput = 'container' in op.intent ? op.intent.container : undefined;
+        const container = containerInput
+          ? layoutContainerOf(containerInput, instanceKeys, groupKeys)
+          : undefined;
+        const intent: LayoutIntent = container
+          ? ({ ...op.intent, container } as LayoutIntent)
+          : op.intent;
+        const canvas = layoutCanvasOf(doc);
+        const refProps = connectorRefPair(definitions);
+        const result = resolveLayout({
+          document: doc,
+          targets: [...idSet],
+          intent,
+          ...(canvas ? { canvas } : {}),
+          constrainToCanvas: op.constrainToCanvas,
+          resolveCollisions: op.resolveCollisions,
+          ...(refProps ? { refProps } : {}),
+        });
+        for (const change of result.changes) {
+          await updateInstance(db, change.id, userId, {
+            position: change.position,
+            ...(change.size ? { size: change.size } : {}),
+          });
+        }
+        applied.push({ index, type: op.type, id: null });
         break;
       }
     }

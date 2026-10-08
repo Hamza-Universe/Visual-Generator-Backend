@@ -1,4 +1,4 @@
-# @app/render — shared render semantics (Stage 2D + 3A timeline)
+# @app/render — shared render semantics (Stage 2D + 3A timeline + 4C layout)
 
 Single source of truth for how a `SceneDocument` looks. Consumed by the
 Remotion worker (`SceneComposition`) and the frontend (preview + canvas),
@@ -37,6 +37,19 @@ so both renderers interpret the same document identically.
   `transform.rotation/scaleX/scaleY`, `style.opacity`. Easing: `linear`,
   `easeIn`, `easeOut`, `easeInOut`. Segment easing comes from the starting
   keyframe (`A.easing`); unknown names fall back to `linear`.
+- **Layout** (see `layout.ts`, Stage 4C): `resolveLayout(request)` (alias
+  `applyLayout`) is the pure, deterministic arrangement engine: horizontal,
+  vertical, grid, center, stack, align, distribute, relationship flow,
+  text-aware sizing (`fitText`), canvas constraints, overlap detection, and
+  bounded collision resolution. It reuses `boundsOf`/`unionBounds`/
+  `connectorEndpoints`, emits minimal geometry deltas, and never mutates the
+  document. Scenes are layered compositions: overlapping boxes are only ever
+  separated when collision resolution is explicitly requested, and instances
+  marked `style.layoutOverlap = 'intentional'` are never separated.
+  Connectors (instances carrying the full ref-props pair) are derived
+  geometry — excluded from arrangement and re-anchored to the segment box of
+  their endpoints after every pass. No randomness or clocks: document-order
+  tie-breaks, 2-decimal rounding, bounded passes — same input → same output.
 
 ## Rules
 

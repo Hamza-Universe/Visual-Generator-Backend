@@ -154,7 +154,9 @@ export const buildAIContext = (input: AIContextInput): AIContext => {
     })),
     instructions: [
       `Respond with a JSON operation plan: {"operations": [...]} (max ${MAX_AI_PLAN_OPERATIONS} operations).`,
-      'Available operation types: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe.',
+      'Available operation types: createInstance, updateInstance, deleteInstance, createGroup, deleteGroup, moveInstance, resizeInstance, updateProps, updateStyle, setVisibility, setZIndex, setReference, addAnimationTrack, addKeyframe, deleteKeyframe, layout.',
+      'Prefer layout over moveInstance when arranging multiple objects. It expresses intent the deterministic engine resolves to coordinates: {"type":"layout","targets":[{"instanceId":"…"}],"intent":{"type":"horizontal"|"vertical"|"grid"|"center"|"stack"|"align"|"distribute"|"flow"|"fitText"|"constrain"|"detectOverlaps"|"resolveCollisions", …},"constrainToCanvas":false,"resolveCollisions":false}. Scope with targets (ids or clientKeys), groupId/groupClientKey, or all:true — at least one.',
+      'Overlapping bounding boxes are allowed for layered compositions (backgrounds, overlays, highlights, decorations, connectors). Mark intentional overlaps with style.layoutOverlap="intentional"; collision resolution only runs when requested and never separates marked instances.',
       'createInstance requires a unique clientKey and an exact definitionName from the registry above.',
       'Reference other instances by their id, or by clientKey for instances created earlier in the same plan.',
       'Animation keyframes use integer frames within the scene durationFrames and one of: linear, easeIn, easeOut, easeInOut.',
