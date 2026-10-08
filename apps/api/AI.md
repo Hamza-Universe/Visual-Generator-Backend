@@ -1,4 +1,4 @@
-# Scene AI Architecture (Stage 4A + Stage 4B bounded agent)
+# Scene AI Architecture (Stages 4A–4D)
 
 > **AI is a planner, not the rendering engine.** The AI never generates React,
 > Remotion, JSX, HTML, CSS, SVG, or any executable code. Its only output is a
@@ -82,8 +82,14 @@ apps/api/src/ai/
   planner.ts         intent → context → provider → validated plan
   apply.ts           pure plan validation + validate-then-apply orchestration
                     (+ request-scoped usedClientKeys idempotency)
+  docScope.ts        shared scope expansion for layout & motion (group
+                    members, canvas, resolveMotionScope) — one implementation
+                    for validation, application, and verification
+  motion.ts          motion bridge: scope → engine targets, MOTION_* plan
+                    issues, planned windows for conflict detection
   agent.ts           bounded loop: limits, turn schema, context overlay
   verification.ts    machine-checkable expectations + deterministic evaluator
+                    (+ verifyAppliedMotion: post-apply motion recompilation)
   observability.ts   payload-free request metadata (plan/apply + agent)
   tools.ts           read-only tool harness, deterministic layout math,
                     and the bounded-agent tool allowlist/executor
@@ -150,7 +156,7 @@ moveInstance     resizeInstance
 updateProps      updateStyle
 setVisibility    setZIndex        setReference
 addAnimationTrack  addKeyframe    deleteKeyframe
-layout
+layout           motion
 ```
 
 `layout` (Stage 4C) expresses semantic arrangement intent — `horizontal`,
@@ -162,6 +168,61 @@ and/or `all: true`; optionally clamp with `constrainToCanvas` or opt into
 `resolveCollisions`. Intentional overlaps (backgrounds, overlays, highlights,
 decorations) are preserved: mark them with `style.layoutOverlap="intentional"`
 and neither verification nor collision resolution will separate them.
+
+`motion` (Stage 4D) expresses semantic animation intent: the model names a
+supported primitive, timing in seconds, primitive-specific options, and
+optional choreography — the deterministic motion engine in `@app/render`
+compiles it into ordinary `AnimationTrack`s on the existing timeline. The
+model never emits keyframes, coordinates, frame numbers, or easing curves for
+motion.
+
+```
+{"type": "motion",
+ "targets": [{"instanceId": "…"}] | groupId/groupClientKey,
+ "primitive": "fadeIn | scaleIn | slideIn | popIn |
+               fadeOut | scaleOut | slideOut |
+               move | scale | resize | rotate | fade |
+               pulse | bounce | shake | scaleEmphasis",
+ "timing":     {"start?": s, "delay?": s, "duration?": s, "end?": s},
+ "options":    {…primitive-specific…},
+ "choreography": {"mode?": "sequence|parallel|overlap|stagger",
+                  "order?": "forward|reverse|centerOut|edgesIn",
+                  "stagger?": s, "overlap?": s}}
+```
+
+- **Timing** is seconds; frames convert as `Math.round(seconds * fps)` with
+  inclusive `[start, end]` windows. `end`, when given, must equal
+  `start + delay + duration`.
+- **`slideIn`/`slideOut` distances derive from Stage 4C layout bounds and the
+  canvas edge** (clamped to 48–4000px) — an explicit `distance` option is the
+  only numeric override, and the AI never supplies start/end coordinates.
+- **Easing** is a named timeline easing only: `linear`, `easeIn`, `easeOut`,
+  `easeInOut`, `easeInQuad`, `easeOutQuad`, `easeInCubic`, `easeOutCubic`,
+  `easeInBack`, `easeOutBack`. `spring` is an option (a closed-form damped
+  oscillator sampled into ≤48 keyframes), not an easing name.
+- **Choreography** distributes one primitive across the resolved scope:
+  `parallel` (all together), `stagger` (rank × stagger), `sequence`
+  (rank × (duration + stagger)), `overlap` (rank × (duration − overlap));
+  orders are deterministic with simultaneous ties — no randomness anywhere.
+- **Capability gating:** declared-but-unsupported primitives (`wipeIn`,
+  `revealIn`, `drawIn`, `typeIn`, `blurIn`, `colorChange`, `textChange`,
+  `shapeChange`, `morph`, and all `camera*` effects) fail with
+  `MOTION_UNSUPPORTED_RENDER_CAPABILITY` instead of being faked; unknown names
+  fail with `MOTION_UNSUPPORTED_PRIMITIVE`.
+- **Conflicts:** a motion operation owns every keyframe inside its window. A
+  strict overlap with another motion op on the same target + property, or a
+  raw `addAnimationTrack`/`addKeyframe`/`deleteKeyframe` frame inside that
+  window, is rejected with `MOTION_CONFLICT` — order-independently.
+- **Scope** resolves to explicit targets (plan order) then group members
+  (nested groups included, document order), deduplicated, capped server-side
+  at 500 (`MOTION_TARGET_LIMIT`).
+
+All motion failures surface as plan issues with `MOTION_*` codes
+(`MOTION_TARGET_NOT_FOUND`, `MOTION_UNSUPPORTED_PRIMITIVE`,
+`MOTION_UNSUPPORTED_RENDER_CAPABILITY`, `MOTION_INVALID_TIMING`,
+`MOTION_INVALID_OPTION`, `MOTION_CONFLICT`, `MOTION_COMPILATION_ERROR`,
+`MOTION_TARGET_LIMIT`) inside the usual `422 AI_OPERATION_INVALID` envelope —
+schema-level failures stay `AI_SCHEMA_ERROR`.
 
 Addressing rules:
 
@@ -225,8 +286,12 @@ Each iteration is: **inspect → decide → validate → apply → verify**.
 - After a successful apply (or a `done`), `verifySceneExpectations`
   re-evaluates the model's expectations against the authoritative document:
   instance existence, position/size (1px tolerance), overlaps (listed,
-  listed-vs-scene, required pairs), and reference validity. Passed →
-  `completed`; failed → bounded correction.
+  listed-vs-scene, required pairs), and reference validity. Motion operations
+  are additionally recompiled by `verifyAppliedMotion` against the POST-apply
+  document and diffed keyframe-by-keyframe (frames, values within 0.01,
+  finiteness, scene-duration bounds) — issues are prefixed `motion: ` and merged
+  into the same outcome, so the model can never self-declare that its motion
+  landed. Passed → `completed`; failed → bounded correction.
 - The loop is request-scoped: no agent state is persisted, no background
   job, no memory across requests.
 
@@ -300,15 +365,17 @@ definitions in the caller's authorized set.
 
 ## System prompt and context versioning
 
-`AI_CONTEXT_VERSION = "2"` in `systemPrompt.ts` labels both the system prompt
+`AI_CONTEXT_VERSION = "3"` in `systemPrompt.ts` labels both the system prompt
 and every context pack. Bump it when prompt/context semantics change so
 historical requests remain explainable. The prompt is deliberately small:
 planner rules only — no repository architecture dump. Stage 4C bumped it to
-`"2"` when the semantic `layout` operation and overlap rules were added.
+`"2"` when the semantic `layout` operation and overlap rules were added;
+Stage 4D bumped it to `"3"` for the semantic `motion` operation, the full
+ten-name easing vocabulary, and the capability-gating rule.
 
 Stage 4B adds `AI_AGENT_CONTEXT_VERSION = "1"` and
 `SCENE_AGENT_SYSTEM_PROMPT_V1` for the bounded agent. The agent reuses the
-Stage 4A scene context pack (Stage 4C moved that pack to `"2"`) and adds an
+Stage 4A scene context pack (currently `"3"`) and adds an
 agent overlay: iteration/turn counters, remaining budgets, tool specs,
 observations from this iteration, `createdThisRequest` (clientKey → real id),
 prior-iteration summaries, and the last validation/verification/schema
@@ -373,14 +440,19 @@ streaming, model selector, or token dashboard.
 
 `apps/api/test/ai.test.ts` (provider, context, validation, planning,
 application, OpenAPI contract), `apps/api/test/agent.test.ts` (bounded loop,
-read tools, safety, idempotency, termination), and
-`apps/mcp/test/tools.test.ts` cover the harness with a **mocked provider**.
+read tools, safety, idempotency, termination),
+`apps/api/test/aiLayout.test.ts` (Stage 4C semantic layout integration), and
+`apps/api/test/aiMotion.test.ts` (Stage 4D semantic motion integration:
+schema, MOTION_* validation, engine→mutation application, application-side
+verification, agent end-to-end) cover the harness with a **mocked provider**.
 Agent tests run the real turn schema, tools, validation, apply, and
 verification against an in-memory mutable document — including the key
 scenarios: one-shot success, an insufficient move corrected in a second
-iteration after deterministic overlap verification, and clean termination at
-the iteration limit. No automated test requires an OpenRouter key or burns
-free-tier requests.
+iteration after deterministic overlap verification, capability-gated motion
+corrected through bounded feedback, and clean termination at
+the iteration limit. The engine itself is covered by
+`packages/render/test/motion.test.ts`. No automated test requires an
+OpenRouter key or burns free-tier requests.
 
 ## Optional live smoke tests
 

@@ -659,7 +659,7 @@ describe('AI context & prompts (Stage 4C)', () => {
       definitions: registryRows,
       userId: USER_ID,
     });
-    expect(context.version).toBe('2');
+    expect(context.version).toBe('3');
     expect(context.instructions).toContain('layout');
     expect(context.instructions).toContain('style.layoutOverlap');
     expect(context.instructions).toContain('moveInstance');
@@ -673,10 +673,10 @@ describe('AI context & prompts (Stage 4C)', () => {
     expect(text).toContain('resolveCollisions');
   });
 
-  it('bumps the system prompt contract to v2 with the layout rule', () => {
+  it('bumps the system prompt contract to v3 with the layout rule', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt.version).toBe('2');
-    expect(AI_CONTEXT_VERSION).toBe('2');
+    expect(prompt.version).toBe('3');
+    expect(AI_CONTEXT_VERSION).toBe('3');
     expect(prompt.text).toContain('"layout"');
     expect(prompt.text).toContain('style.layoutOverlap');
   });

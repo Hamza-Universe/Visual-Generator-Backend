@@ -3,6 +3,10 @@ import {
   AnimatablePropertySchema,
   InstancePositionSchema,
   LayoutIntentSchema,
+  MOTION_MAX_PRIMITIVE_LENGTH,
+  MOTION_MAX_TARGETS,
+  MotionChoreographySchema,
+  MotionTimingSchema,
   SizeSchema,
   StyleSchema,
   TimelineKeyframeSchema,
@@ -180,6 +184,42 @@ export const AILayoutOperationSchema = z
     resolveCollisions: z.boolean().default(false),
   });
 
+/**
+ * Semantic motion (Stage 4D): the AI names a supported motion primitive,
+ * timing in seconds, primitive-specific options, and optional choreography;
+ * the deterministic engine in `@app/render` compiles it to ordinary
+ * AnimationTracks on the existing timeline. The model never emits keyframes,
+ * coordinates, or frame numbers for motion — `slideIn` distances derive from
+ * Stage 4C layout bounds, and unsupported primitives (wipe/blur/type/draw/
+ * camera effects) fail with deterministic MOTION_* codes instead of being
+ * faked. Scope is the union of `targets` (ids or plan `clientKey`s) and/or a
+ * group's members — at least one scope is required.
+ */
+export const AIMotionOperationSchema = z.object({
+  type: z.literal('motion'),
+  /** Explicit instance ids, or clientKeys created earlier in this plan. */
+  targets: z
+    .array(
+      z.object({
+        instanceId: z.string().uuid().optional(),
+        clientKey: z.string().min(1).max(64).optional(),
+      }),
+    )
+    .min(1)
+    .max(MOTION_MAX_TARGETS)
+    .optional(),
+  /** Also animate every member of this group (nested groups included). */
+  ...GroupRefSchema.shape,
+  /** Primitive name from the supported vocabulary (checked semantically). */
+  primitive: z.string().min(1).max(MOTION_MAX_PRIMITIVE_LENGTH),
+  /** Seconds: { start?, delay?, duration?, end? } with documented defaults. */
+  timing: MotionTimingSchema.optional(),
+  /** Primitive-specific options (unknown/inapplicable → MOTION_INVALID_OPTION). */
+  options: z.record(z.string(), z.unknown()).optional(),
+  /** Distribute the primitive across targets (parallel/stagger/sequence/overlap). */
+  choreography: MotionChoreographySchema.optional(),
+});
+
 export const AISceneOperationSchema = z.discriminatedUnion('type', [
   AICreateInstanceOperationSchema,
   AIUpdateInstanceOperationSchema,
@@ -197,6 +237,7 @@ export const AISceneOperationSchema = z.discriminatedUnion('type', [
   AIAddKeyframeOperationSchema,
   AIDeleteKeyframeOperationSchema,
   AILayoutOperationSchema,
+  AIMotionOperationSchema,
 ]);
 
 export type AISceneOperation = z.infer<typeof AISceneOperationSchema>;

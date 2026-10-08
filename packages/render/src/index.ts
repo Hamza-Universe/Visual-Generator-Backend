@@ -7,3 +7,4 @@ export * from './timeline.js';
 export * from './easing.js';
 export * from './evaluator.js';
 export * from './layout.js';
+export * from './motion.js';

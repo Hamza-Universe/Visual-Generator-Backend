@@ -1,5 +1,13 @@
 import type { Database } from '@app/db';
-import { resolveLayout, type LayoutContainerRef, type LayoutIntent } from '@app/render';
+import {
+  compileMotion,
+  resolveLayout,
+  type LayoutContainerRef,
+  type LayoutIntent,
+  type MotionCompileRequest,
+  type MotionPlanItem,
+  type MotionRawKeyframeOp,
+} from '@app/render';
 import {
   CreateGroupInputSchema,
   CreateInstanceInputSchema,
@@ -22,6 +30,12 @@ import {
   requireSceneAccess,
   updateInstance,
 } from '../services/documents.js';
+import {
+  instanceIdsInGroup,
+  layoutCanvasOf,
+  resolveMotionScope,
+} from './docScope.js';
+import { buildMotionTargets, validateMotionOperation } from './motion.js';
 import {
   AIScenePlanSchema,
   type AISceneOperation,
@@ -96,45 +110,6 @@ type LayoutContainerInput =
       groupClientKey?: string;
     }
   | undefined;
-
-/** All instance ids belonging to a group, nested subgroups included. */
-const instanceIdsInGroup = (document: SceneDocument, groupId: string): Set<string> => {
-  const parentOf = new Map(
-    document.groups.map((group) => [group.id, group.parentGroupId ?? null]),
-  );
-  const isMember = (candidate: string | null | undefined): boolean => {
-    let cursor = candidate ?? null;
-    const seen = new Set<string>();
-    while (cursor) {
-      if (cursor === groupId) return true;
-      if (seen.has(cursor)) break;
-      seen.add(cursor);
-      cursor = parentOf.get(cursor) ?? null;
-    }
-    return false;
-  };
-  return new Set(
-    document.components
-      .filter((component) => isMember(component.groupId))
-      .map((component) => component.id),
-  );
-};
-
-/**
- * Canvas for layout: the scene's meta width/height when present, otherwise
- * undefined so the engine falls back to the canonical WORLD size.
- */
-const layoutCanvasOf = (
-  document: SceneDocument,
-): { width: number; height: number } | undefined => {
-  const meta = (document.meta ?? {}) as Record<string, unknown>;
-  const width = Number(meta.width);
-  const height = Number(meta.height);
-  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
-    return { width, height };
-  }
-  return undefined;
-};
 
 /**
  * The connector reference pair (from/to) declared by the authorized
@@ -218,6 +193,57 @@ export const validateScenePlan = (input: {
   const seenClientKeys = new Set<string>();
   const timeline = resolveSceneTimeline(document);
 
+  // --- Stage 4D motion validation state ----------------------------------
+  /** Identities (doc ids or plan clientKeys) deleted earlier in this plan. */
+  const deletedInstanceIds = new Set<string>();
+  const deletedGroupIds = new Set<string>();
+  /** Motion windows collected so far, for order-independent conflicts. */
+  const motionItems: MotionPlanItem[] = [];
+  /** Plan-wide clientKeys (for resolving raw-op identities before the walk). */
+  const planCreatedKeys = new Set(
+    plan.operations.flatMap((operation) =>
+      operation.type === 'createInstance' || operation.type === 'createGroup'
+        ? [operation.clientKey]
+        : [],
+    ),
+  );
+  /**
+   * Pre-scan of the plan's raw keyframe operations: conflicts between a
+   * motion window and an addAnimationTrack/addKeyframe/deleteKeyframe frame
+   * are order-independent, so every raw frame is collected before any
+   * operation is validated. Identities resolve exactly like motion targets
+   * (doc ids, request-scoped clientKeys, plan clientKeys).
+   */
+  const rawKeyframeOps: MotionRawKeyframeOp[] = [];
+  plan.operations.forEach((operation, operationIndex) => {
+    if (
+      operation.type !== 'addAnimationTrack' &&
+      operation.type !== 'addKeyframe' &&
+      operation.type !== 'deleteKeyframe'
+    ) {
+      return;
+    }
+    const targetId =
+      operation.instanceId ??
+      (operation.clientKey
+        ? (usedClientKeys?.get(operation.clientKey) ??
+          (planCreatedKeys.has(operation.clientKey) ? operation.clientKey : ''))
+        : '');
+    const frames =
+      operation.type === 'addAnimationTrack'
+        ? operation.keyframes.map((keyframe) => keyframe.frame)
+        : operation.type === 'addKeyframe'
+          ? [operation.keyframe.frame]
+          : [operation.frame];
+    rawKeyframeOps.push({
+      opIndex: operationIndex,
+      type: operation.type,
+      targetId,
+      property: operation.property,
+      frames,
+    });
+  });
+
   const claimKey = (key: string | undefined, opIndex: number, what: string): boolean => {
     if (!key) return true;
     if (usedClientKeys?.has(key)) {
@@ -283,6 +309,7 @@ export const validateScenePlan = (input: {
           issues.push({ opIndex, path: 'instanceId', code: 'AI_OPERATION_INVALID', message: 'Instance does not exist in this scene' });
           break;
         }
+        deletedInstanceIds.add(target);
         // Never orphan references: reject deleting an instance that other
         // document instances point at.
         const referenced = document.components.some((c) => {
@@ -298,7 +325,9 @@ export const validateScenePlan = (input: {
         const target = resolveGroupTarget(op, docGroupIds, createdGroupKeys);
         if (!target) {
           issues.push({ opIndex, path: 'groupId', code: 'AI_OPERATION_INVALID', message: 'Group does not exist in this scene' });
+          break;
         }
+        deletedGroupIds.add(target);
         break;
       }
       case 'updateInstance':
@@ -418,6 +447,63 @@ export const validateScenePlan = (input: {
             });
           }
         }
+        break;
+      }
+      case 'motion': {
+        // Stage 4D: resolve the scope through the shared helper (exact
+        // apply-time semantics: in-plan deletions are honored, plan-created
+        // groups only contain members created before this operation), then
+        // let the deterministic engine issue MOTION_* issues and planned
+        // windows for order-independent conflict detection.
+        const scope = resolveMotionScope({
+          targets: op.targets ?? null,
+          groupId: op.groupId ?? null,
+          groupClientKey: op.groupClientKey ?? null,
+          resolveTarget: (ref) => {
+            const id = resolveInstanceTarget(ref, docInstanceIds, createdInstanceKeys);
+            return id && !deletedInstanceIds.has(id) ? id : null;
+          },
+          resolveGroup: (ref) => {
+            const id = resolveGroupTarget(ref, docGroupIds, createdGroupKeys);
+            return id && !deletedGroupIds.has(id) ? id : null;
+          },
+          groupMembers: (identity) => {
+            if (docGroupIds.has(identity)) {
+              return [...instanceIdsInGroup(document, identity)].filter(
+                (id) => !deletedInstanceIds.has(id),
+              );
+            }
+            // Plan-created group: members are the instances created before
+            // THIS operation — validation and application must agree.
+            const members: string[] = [];
+            for (const earlier of plan.operations.slice(0, opIndex)) {
+              if (earlier.type !== 'createInstance') continue;
+              if (earlier.groupClientKey !== identity) continue;
+              if (deletedInstanceIds.has(earlier.clientKey)) continue;
+              members.push(earlier.clientKey);
+            }
+            return members;
+          },
+        });
+        if ('error' in scope) {
+          issues.push({
+            opIndex,
+            path: scope.error.path,
+            code: scope.error.code,
+            message: scope.error.message,
+          });
+          break;
+        }
+        const validated = validateMotionOperation({
+          op,
+          opIndex,
+          ids: scope.ids,
+          document,
+          priorItems: motionItems,
+          rawOps: rawKeyframeOps,
+        });
+        issues.push(...validated.issues);
+        motionItems.push(...validated.items);
         break;
       }
       case 'addAnimationTrack':
@@ -756,6 +842,92 @@ export const applyScenePlan = async (input: {
           await updateInstance(db, change.id, userId, {
             position: change.position,
             ...(change.size ? { size: change.size } : {}),
+          });
+        }
+        applied.push({ index, type: op.type, id: null });
+        break;
+      }
+      case 'motion': {
+        // Stage 4D: compile semantic motion intent into ordinary animation
+        // tracks with the deterministic engine, then write each target's
+        // merged track set through the single document mutation mechanism.
+        // Scope resolution mirrors validation exactly (real ids now that
+        // plan clientKeys have been resolved by earlier operations).
+        const doc = await currentDocument();
+        const docIds = new Set(doc.components.map((c) => c.id));
+        const docGroupIds = new Set(doc.groups.map((g) => g.id));
+        const scope = resolveMotionScope({
+          targets: op.targets ?? null,
+          groupId: op.groupId ?? null,
+          groupClientKey: op.groupClientKey ?? null,
+          resolveTarget: (ref) => {
+            const id =
+              ref.instanceId ??
+              (ref.clientKey ? instanceKeys.get(ref.clientKey) : undefined);
+            return id && docIds.has(id) ? id : null;
+          },
+          resolveGroup: (ref) => {
+            const id =
+              ref.groupId ??
+              (ref.groupClientKey ? groupKeys.get(ref.groupClientKey) : undefined);
+            return id && docGroupIds.has(id) ? id : null;
+          },
+          groupMembers: (identity) => [...instanceIdsInGroup(doc, identity)],
+        });
+        if ('error' in scope) {
+          throw new AppError(scope.error.code, scope.error.message, 422, [
+            {
+              opIndex: index,
+              path: scope.error.path,
+              code: scope.error.code,
+              message: scope.error.message,
+            },
+          ]);
+        }
+        const { targets, missing } = buildMotionTargets(doc, scope.ids, {
+          synthesizeMissing: false,
+        });
+        if (missing.length > 0) {
+          throw new AppError(
+            'MOTION_TARGET_NOT_FOUND',
+            `Motion targets missing after apply: ${missing.join(', ')}`,
+            422,
+          );
+        }
+        const compiled = compileMotion({
+          primitive: op.primitive,
+          options: (op.options ?? null) as MotionCompileRequest['options'],
+          timing: (op.timing ?? null) as MotionCompileRequest['timing'],
+          choreography: (op.choreography ?? null) as MotionCompileRequest['choreography'],
+          targets,
+          timeline: resolveSceneTimeline(doc),
+          canvas: layoutCanvasOf(doc) ?? null,
+        });
+        if (compiled.issues.length > 0) {
+          const first = compiled.issues[0];
+          throw new AppError(
+            first.code,
+            `motion operation ${index} failed to compile: ${first.message}`,
+            422,
+            compiled.issues,
+          );
+        }
+        for (const target of compiled.targets) {
+          const current = doc.components.find((c) => c.id === target.id);
+          if (!current) throw new AppError('NOT_FOUND', 'Component instance not found', 404);
+          // Render keyframes carry an optional easing; the document schema's
+          // output shape has it required (default 'linear' — semantically
+          // identical for the omitted case).
+          const tracks: AnimationTrack[] = target.tracks.map((track) => ({
+            property: track.property,
+            keyframes: track.keyframes.map((keyframe) => ({
+              frame: keyframe.frame,
+              value: keyframe.value,
+              easing: keyframe.easing ?? 'linear',
+            })),
+          }));
+          await updateInstance(db, target.id, userId, {
+            animation: { ...current.animation, tracks },
           });
         }
         applied.push({ index, type: op.type, id: null });
