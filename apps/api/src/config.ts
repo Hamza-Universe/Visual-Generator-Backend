@@ -43,10 +43,7 @@ const EnvSchema = z.object({
   MAX_UPLOAD_MB: z.coerce.number().positive().default(500),
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
   MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
-  JWT_SECRET: z
-    .string()
-    .min(32)
-    .default('change-me-in-production-please-keep-long'),
+  JWT_SECRET: z.string().min(32),
   JWT_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   SMTP_HOST: z.string().default(''),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

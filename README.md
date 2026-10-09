@@ -10,7 +10,7 @@ Requirements:
 - pnpm
 - PostgreSQL
 - Redis
-- ffmpeg for video or oversized transcription preprocessing
+- ffmpeg for video transcription preprocessing
 
 Install and start local services:
 
@@ -23,7 +23,7 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
-Set a long random `JWT_SECRET`. For password reset email delivery, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `PASSWORD_RESET_URL`.
+Set a long random `JWT_SECRET` (required, no default). For password reset email delivery, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `PASSWORD_RESET_URL`. See `.env.example` for all available configuration options including render worker and AI agent settings.
 
 Run the API and render worker together:
 
@@ -49,14 +49,14 @@ Protected projects, assets, transcripts, generation, and render operations are s
 Password reset uses this flow:
 
 1. `POST /auth/forgot-password` with `{ "email": "..." }`.
-2. The API sends an SMTP reset link to the account email.
+2. The API persists a reset token and sends an SMTP reset link to the account email.
 3. The frontend submits the link token and a new password to `POST /auth/reset-password`.
 
 The forgot-password response is intentionally generic whether or not the email exists.
 
 ## AI generation
 
-Direct provider mode uses `POST /projects/:id/generate` with Gemini. Set `GEMINI_API_KEY` and optionally `AI_MODEL` (default `gemini-2.0-flash`). Per-request API keys are used in memory only and are never stored or logged.
+Direct provider mode uses `POST /projects/:id/generate` with Gemini. Set `GEMINI_API_KEY` and optionally `AI_MODEL` (default `gemini-3.8-flash`). Per-request API keys are used in memory only and are never stored or logged.
 
 Manual mode requires no provider key:
 
@@ -67,17 +67,11 @@ Manual mode requires no provider key:
 
 ## Assets and transcription
 
-Upload audio, video, image, logo, or side-video assets through `POST /assets`. Asset MIME types are checked against their declared kind. Audio/video transcription uses Gemini with word timestamps. Video is converted by ffmpeg to mono 16 kHz MP3 before upload.
+Upload audio, video, image, logo, or side-video assets through `POST /assets`. Asset MIME types are checked against their declared kind. Audio/video transcription uses Gemini with word timestamps. Video is converted by ffmpeg to mono 16 kHz MP3 before sending to Gemini.
 
 ## Rendering
 
-`POST /projects/:id/renders` queues a BullMQ job. The worker resolves only owner-owned referenced assets and renders them through Remotion, including:
-
-- seeded animation components
-- palette colors and transitions
-- image backgrounds and logos
-- audio tracks
-- circular, rounded, or square side-video overlays
+`POST /projects/:id/renders` queues a BullMQ job. The worker resolves only owner-owned referenced assets and renders them through Remotion.
 
 Poll `GET /renders/:id` until the status is `done`, then download `GET /renders/:id/file`.
 
@@ -89,7 +83,7 @@ MCP uses a real API JWT for the configured user. Set:
 
 ```env
 API_BASE_URL=http://localhost:3001
-MCP_TRANSPORT=stdio
+MCP_TRANSPORT=http
 MCP_API_TOKEN=<JWT returned by /auth/login>
 ```
 
@@ -99,9 +93,9 @@ Start the local MCP server:
 pnpm dev:mcp
 ```
 
-It exposes nine tools: project/component listing, project reads, spec validation, direct generation, manual prompt generation, manual submission, render creation, and render status.
+It exposes 22 tools: project/component listing, project reads, spec validation, direct generation, manual prompt generation, manual submission, render creation, render status, asset management, transcript import, generation context, and AI plan/apply/execute.
 
-For streamable HTTP, set `MCP_TRANSPORT=http`. The MCP HTTP endpoint listens on port `3002` and requires `Authorization: Bearer <MCP_API_TOKEN>`. Put TLS and authentication at the reverse proxy in production.
+For streamable HTTP, set `MCP_TRANSPORT=http`. The MCP HTTP endpoint listens on port `3002` and requires `Authorization: Bearer <MCP_API_TOKEN>`. Put TLS and authentication at the reverse proxy in production. For stdio transport, set `MCP_TRANSPORT=stdio`.
 
 ## API contract
 
@@ -114,6 +108,8 @@ pnpm test
 pnpm build
 pnpm lint
 ```
+
+All checks include TypeScript typechecking and ESLint for TypeScript sources.
 
 ## Deliberate scope
 

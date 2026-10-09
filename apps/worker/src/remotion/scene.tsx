@@ -6,6 +6,7 @@ import {
   evaluateSceneAtFrame,
   normalizeFrame,
   resolveTimeline,
+  BUILT_IN_RENDERER_KEYS,
   type RenderableDocument,
   type RenderNode,
   type RenderTreeNode,
@@ -279,6 +280,18 @@ const sceneRenderers: Record<string, (props: RendererProps) => ReactNode> = {
   Arrow: ArrowRenderer,
   LogoCard: LogoCardRenderer,
 };
+
+// Development-only assertion: registered renderers must match authoritative keys.
+if (process.env.NODE_ENV !== 'production') {
+  const registered = Object.keys(sceneRenderers).sort()
+  const authoritative = [...BUILT_IN_RENDERER_KEYS].sort()
+  if (JSON.stringify(registered) !== JSON.stringify(authoritative)) {
+    console.error(
+      '[worker renderer registry drift] Registered keys:', registered,
+      'Authoritative keys:', authoritative,
+    )
+  }
+}
 
 export const resolveSceneRenderer = (definitionName: string) =>
   sceneRenderers[definitionName] ?? null;

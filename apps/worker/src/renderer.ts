@@ -29,9 +29,14 @@ export const renderProject = async (input: {
   timeoutMs?: number;
   onProgress: (progress: number) => Promise<void> | void;
 }) => {
-  const entryPoint = fileURLToPath(
-    new URL('./remotion/index.js', import.meta.url),
-  );
+  // Resolve entry point: always use the built output in dist/remotion/index.js
+  const currentFile = fileURLToPath(import.meta.url);
+  const isBuilt = currentFile.includes('/dist/') || currentFile.includes('\\dist\\');
+  const normalizedPath = currentFile.replace(/\\/g, '/');
+  const baseDir = isBuilt
+    ? normalizedPath.replace('/dist/renderer.js', '')
+    : normalizedPath.replace('/src/renderer.ts', '');
+  const resolvedEntryPoint = join(baseDir, 'dist', 'remotion', 'index.js');
   const publicDir = `${input.outputPath}.public`;
   await mkdir(publicDir, { recursive: true });
   try {
@@ -46,7 +51,7 @@ export const renderProject = async (input: {
         mimeType: asset.mimeType,
       };
     }
-    const serveUrl = await bundle({ entryPoint, publicDir });
+    const serveUrl = await bundle({ entryPoint: resolvedEntryPoint, publicDir });
     const inputProps = { spec: input.spec, assets };
     const compositions = await getCompositions(serveUrl, { inputProps });
     const composition = compositions.find(
@@ -97,9 +102,14 @@ export const renderSceneDocument = async (input: {
 }) => {
   // Fail fast on invalid production documents (never silently corrupt a render).
   const document = SceneDocumentSchema.parse(input.document);
-  const entryPoint = fileURLToPath(
-    new URL('./remotion/index.js', import.meta.url),
-  );
+  // Resolve entry point: always use the built output in dist/remotion/index.js
+  const currentFile = fileURLToPath(import.meta.url);
+  const isBuilt = currentFile.includes('/dist/') || currentFile.includes('\\dist\\');
+  const normalizedPath = currentFile.replace(/\\/g, '/');
+  const baseDir = isBuilt
+    ? normalizedPath.replace('/dist/renderer.js', '')
+    : normalizedPath.replace('/src/renderer.ts', '');
+  const resolvedEntryPoint = join(baseDir, 'dist', 'remotion', 'index.js');
   const publicDir = `${input.outputPath}.public`;
   await mkdir(publicDir, { recursive: true });
   try {
@@ -121,7 +131,7 @@ export const renderSceneDocument = async (input: {
       background: input.background,
       assets,
     };
-    const serveUrl = await bundle({ entryPoint, publicDir });
+    const serveUrl = await bundle({ entryPoint: resolvedEntryPoint, publicDir });
     const compositions = await getCompositions(serveUrl, { inputProps });
     const composition = compositions.find(
       (candidate) => candidate.id === 'SceneDocumentProduction',

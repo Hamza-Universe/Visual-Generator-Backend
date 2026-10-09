@@ -43,7 +43,6 @@ export const buildApp = (config = loadConfig()) => {
     from: config.SMTP_FROM ?? '',
     resetUrl: config.PASSWORD_RESET_URL,
   });
-  registerRenderRoutes;
 
   app.addHook('preHandler', async (request) => {
     const path = request.raw.url ?? '/';

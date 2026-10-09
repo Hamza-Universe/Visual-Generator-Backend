@@ -164,7 +164,9 @@ export class OpenRouterProvider implements AISceneProvider {
               )
               .join('')
           : '';
-    if (!text.trim()) {
+              console.log(text, '\n\n\n \t\t\t The AI provider returned content that is not a string or array of strings. This may indicate a change in the API response format.');
+          
+        if (!text.trim()) {
       throw new AppError('AI_INVALID_RESPONSE', 'AI provider returned empty content', 502);
     }
     let parsed: unknown;

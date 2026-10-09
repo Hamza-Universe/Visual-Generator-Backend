@@ -34,9 +34,8 @@ const collectRefs = (value: unknown, refs: string[] = []): string[] => {
   if (Array.isArray(value)) for (const item of value) collectRefs(item, refs);
   else if (value && typeof value === 'object')
     for (const [key, item] of Object.entries(value))
-      key === '$ref' && typeof item === 'string'
-        ? refs.push(item)
-        : collectRefs(item, refs);
+      if (key === '$ref' && typeof item === 'string') refs.push(item);
+      else collectRefs(item, refs);
   return refs;
 };
 

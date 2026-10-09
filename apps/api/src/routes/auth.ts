@@ -198,20 +198,21 @@ export const registerAuthRoutes = (
         .where(eq(passwordResetTokens.userId, user.id));
       const reset = auth.createPasswordResetToken(user.id);
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-      try {
-        await mailer.sendPasswordReset({ to: user.email, token: reset.token });
-      } catch {
-        request.log.error('Password reset email delivery failed');
-        return reply.send({
-          ok: true,
-          message: 'If this account exists, a password reset link was created.',
-        });
-      }
+
+      // Persist the token FIRST, then attempt email delivery.
+      // This ensures a usable token exists even if email delivery fails.
       await db.insert(passwordResetTokens).values({
         userId: user.id,
         tokenHash: reset.hash,
         expiresAt,
       });
+
+      try {
+        await mailer.sendPasswordReset({ to: user.email, token: reset.token });
+      } catch (err) {
+        request.log.error({ err }, 'Password reset email delivery failed');
+        // Token is already persisted; generic response to avoid account enumeration.
+      }
 
       return reply.send({
         ok: true,

@@ -5,7 +5,6 @@ import {
   staticFile,
   useCurrentFrame,
   useVideoConfig,
-  interpolate,
   Easing,
   Html5Audio,
 } from 'remotion';

@@ -10,8 +10,8 @@ export class AppError extends Error {
   }
 }
 export const sendError = (reply: FastifyReply, error: unknown) => {
-  if (error instanceof AppError){
-    console.log('\n\n\n', error, '\n\n\n');
+  if (error instanceof AppError) {
+    reply.log.warn({ err: error }, 'AppError');
     return reply
       .code(error.statusCode)
       .send({
@@ -21,7 +21,7 @@ export const sendError = (reply: FastifyReply, error: unknown) => {
           details: error.details,
         },
       });
-    }
+  }
   reply.log.error({ err: error }, 'Unhandled API error');
   return reply
     .code(500)

@@ -1,9 +1,10 @@
-import { eq, desc, and, or, ilike, isNull } from 'drizzle-orm';
+import { eq, desc, and, or, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { components, projects } from '@app/db';
 import type { Database } from '@app/db';
 import * as AjvNamespace from 'ajv';
 import { AppError, sendError } from '../errors.js';
+import { BUILT_IN_RENDERER_KEYS, isKnownRendererKey } from '@app/render';
 
 const check = (input: Record<string, unknown>) => {
   const Ajv = AjvNamespace.default as unknown as new (
@@ -43,7 +44,7 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
     const filter = (request.query as { filter?: string }).filter ?? 'all'; // 'mine' | 'public' | 'project' | 'all'
     const projectId = (request.query as { projectId?: string }).projectId;
 
-    let whereConditions: Array<ReturnType<typeof eq> | ReturnType<typeof isNull> | ReturnType<typeof or>> = [];
+    const whereConditions: Array<ReturnType<typeof eq> | ReturnType<typeof isNull> | ReturnType<typeof or>> = [];
 
     if (filter === 'mine' && user) {
       whereConditions.push(eq(components.userId, user.id));
@@ -151,12 +152,28 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
       const user = request.user as { id: string };
       const input = request.body as Record<string, unknown>;
       check(input);
+
+      // Validate that the component name matches a known built-in renderer key.
+      // This prevents silently creating components that render as "Unsupported component".
+      const name = input.name as string | undefined;
+      if (!name || !isKnownRendererKey(name)) {
+        return sendError(
+          reply,
+          new AppError(
+            'BAD_INPUT',
+            `Component name must be one of the supported renderer keys: ${BUILT_IN_RENDERER_KEYS.join(', ')}`,
+            400,
+          ),
+        );
+      }
+
+      // Only seeded components are public. User-created components are always private.
       const [row] = await db
         .insert(components)
         .values({
           ...input,
-          userId: input.isPublic === true ? null : user.id,
-          isPublic: input.isPublic ?? false,
+          userId: user.id,
+          isPublic: false,
         } as never)
         .returning();
       return reply.code(201).send(row);
@@ -180,17 +197,49 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
         .where(eq(components.id, id));
       if (!existing)
         throw new AppError('NOT_FOUND', 'Component not found', 404);
-      if (existing.userId && existing.userId !== user.id)
+      // Public/seeded components (userId === null) are immutable.
+      if (existing.userId === null)
+        throw new AppError('FORBIDDEN', 'Public components cannot be modified', 403);
+      if (existing.userId !== user.id)
         throw new AppError('FORBIDDEN', 'Not your component', 403);
 
       const input = request.body as Record<string, unknown>;
       check(input);
+
+      // Validate name change if provided.
+      const newName = input.name as string | undefined;
+      if (newName !== undefined && newName !== existing.name) {
+        if (!isKnownRendererKey(newName)) {
+          return sendError(
+            reply,
+            new AppError(
+              'BAD_INPUT',
+              `Component name must be one of the supported renderer keys: ${BUILT_IN_RENDERER_KEYS.join(', ')}`,
+              400,
+            ),
+          );
+        }
+        // Check uniqueness
+        const [conflict] = await db
+          .select({ id: components.id })
+          .from(components)
+          .where(eq(components.name, newName));
+        if (conflict && conflict.id !== id) {
+          return sendError(
+            reply,
+            new AppError('NAME_TAKEN', 'Component name already exists', 409),
+          );
+        }
+      }
+
+      // Prevent making a private component public by clearing userId (only seeded components are public).
+      // Users cannot change isPublic on their own components; it's fixed at creation.
       const [row] = await db
         .update(components)
         .set({
           ...input,
-          userId: input.isPublic === true ? null : user.id,
-          isPublic: input.isPublic ?? existing.isPublic,
+          userId: existing.userId,
+          isPublic: existing.isPublic,
         } as never)
         .where(eq(components.id, id))
         .returning();
@@ -213,7 +262,13 @@ export const registerComponentRoutes = (app: FastifyInstance, db: Database) => {
         reply,
         new AppError('NOT_FOUND', 'Component not found', 404),
       );
-    if (row.userId && row.userId !== user.id)
+    // Public/seeded components (userId === null) cannot be deleted.
+    if (row.userId === null)
+      return sendError(
+        reply,
+        new AppError('FORBIDDEN', 'Public components cannot be deleted', 403),
+      );
+    if (row.userId !== user.id)
       return sendError(
         reply,
         new AppError('FORBIDDEN', 'Not your component', 403),
