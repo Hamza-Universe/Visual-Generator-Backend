@@ -1,6 +1,5 @@
 import { boundsOf } from './geometry.js';
 import type {
-  RenderableDocument,
   RenderableGroup,
   RenderableInstance,
   RenderNode,

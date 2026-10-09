@@ -62,6 +62,28 @@ export const requireAuth = async ({
   return sanitizeUser({ id: user.id, name: user.name, email: user.email });
 };
 
+/**
+ * Administrative authorization foundation. Requires an authenticated user whose
+ * `role` is 'admin'. Non-admins receive 403 (not 404) so the guard is explicit.
+ * The role is read from the database on every call, never from the token.
+ */
+export const requireAdmin = async ({
+  request,
+  db,
+  jwtSecret,
+}: {
+  request: FastifyRequest;
+  db: Database;
+  jwtSecret: string;
+}) => {
+  const user = await requireAuth({ request, db, jwtSecret });
+  const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, user.id));
+  if (!row || row.role !== 'admin') {
+    throw new AppError('FORBIDDEN', 'Administrator access required', 403);
+  }
+  return user;
+};
+
 export const registerAuthRoutes = (
   app: FastifyInstance,
   db: Database,

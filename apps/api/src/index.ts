@@ -63,7 +63,12 @@ export const buildApp = (config = loadConfig()) => {
     request.user = user;
   });
 
-  app.register(cors, { origin: config.CORS_ORIGIN });
+  // Methods must cover every verb the routes serve. Without PATCH/PUT/DELETE the
+// browser blocks inspector saves (PATCH /instances/:id) at the preflight.
+app.register(cors, {
+  origin: config.CORS_ORIGIN,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+});
   app.register(multipart, {
     limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024 },
   });

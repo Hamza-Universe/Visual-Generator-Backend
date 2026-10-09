@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AIModelConfig, AISceneProvider } from './provider.js';
-import type { AIContext } from './context.js';
-import { AIScenePlanSchema, type AIScenePlan } from './operations.js';
+import type { AIModelConfig } from './provider.js';
 
 /**
  * Minimal AI request metadata (Stage 4A).

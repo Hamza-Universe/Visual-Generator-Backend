@@ -22,12 +22,6 @@ export const LayoutEdgeSchema = z.enum(['min', 'center', 'max']);
 export const LayoutJustifySchema = z.enum(['start', 'center', 'end']);
 export const LayoutGapSchema = z.number().min(0).max(4000);
 
-/** Targets an instance created earlier in the same plan by clientKey. */
-const LayoutInstanceTargetSchema = z.object({
-  instanceId: z.string().uuid().optional(),
-  clientKey: z.string().min(1).max(64).optional(),
-});
-
 /**
  * Container a layout resolves against: the canvas, one instance's box, or
  * a group's bounds (the union of its members, nested groups included).

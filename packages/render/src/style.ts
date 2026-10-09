@@ -1,4 +1,4 @@
-import type { RenderableInstance, RenderStyle } from './types.js';
+import type { RenderStyle } from './types.js';
 
 /**
  * Canonical per-instance style (Stage 2D, Phase 7).

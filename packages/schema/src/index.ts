@@ -7,3 +7,4 @@ export * from './layout.js';
 export * from './snapshot.js';
 export * from './renderLifecycle.js';
 export * from './renderTelemetry.js';
+export * from './media.js';

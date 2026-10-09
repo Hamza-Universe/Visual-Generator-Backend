@@ -8,6 +8,7 @@ import {
   timestamp,
   uuid,
   index,
+  uniqueIndex,
   boolean,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
@@ -26,6 +27,8 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  // Additive (0005). 'user' for everyone existing; 'admin' is granted explicitly.
+  role: text('role').default('user').notNull(),
   ...timestamps,
 });
 export const passwordResetTokens = pgTable(
@@ -51,6 +54,8 @@ export const projects = pgTable('projects',
     spec: jsonb('spec').notNull(),
     maxComponents: integer('max_components'),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    // Additive (0005). Existing projects default to landscape, the current behavior.
+    aspect: text('aspect').default('landscape').notNull(),
     ...timestamps,
   },
   (table) => ({ userIndex: index('projects_user_id_idx').on(table.userId) }),
@@ -226,5 +231,120 @@ export const renders = pgTable(
   (table) => ({
     projectIndex: index('renders_project_id_idx').on(table.projectId),
     sceneIndex: index('renders_scene_id_idx').on(table.sceneId),
+  }),
+);
+
+/**
+ * Additive (0005/0006): plans, entitlements, usage, access grants, discount codes.
+ * No payment provider is modelled here. Entitlements are enforced from these
+ * rows so a provider can be added later without schema changes.
+ */
+export const plans = pgTable('plans', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  /** Monthly render quota; null means unlimited. */
+  monthlyRenderLimit: integer('monthly_render_limit'),
+  /** Monthly AI operation quota; null means unlimited. */
+  monthlyAiLimit: integer('monthly_ai_limit'),
+  maxProjects: integer('max_projects'),
+  ...timestamps,
+});
+
+export const userEntitlements = pgTable(
+  'user_entitlements',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    planId: text('plan_id')
+      .notNull()
+      .references(() => plans.id, { onDelete: 'restrict' }),
+    startsAt: timestamp('starts_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => ({
+    userIndex: index('user_entitlements_user_id_idx').on(table.userId),
+  }),
+);
+
+export const usageCounters = pgTable(
+  'usage_counters',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** 'render' | 'ai' */
+    metric: text('metric').notNull(),
+    /** First instant of the counted period (UTC month start). */
+    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+    count: integer('count').default(0).notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    userPeriodUnique: uniqueIndex('usage_counters_user_metric_period_uq').on(
+      table.userId,
+      table.metric,
+      table.periodStart,
+    ),
+  }),
+);
+
+export const accessGrants = pgTable(
+  'access_grants',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    planId: text('plan_id')
+      .notNull()
+      .references(() => plans.id, { onDelete: 'restrict' }),
+    grantedByUserId: uuid('granted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    reason: text('reason'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => ({
+    userIndex: index('access_grants_user_id_idx').on(table.userId),
+  }),
+);
+
+export const discountCodes = pgTable('discount_codes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  /** Stored normalised (upper-case, trimmed). Unique. */
+  code: text('code').notNull().unique(),
+  planId: text('plan_id')
+    .notNull()
+    .references(() => plans.id, { onDelete: 'restrict' }),
+  /** Free-period length granted on redemption, in days. */
+  durationDays: integer('duration_days').notNull(),
+  maxRedemptions: integer('max_redemptions'),
+  redemptionCount: integer('redemption_count').default(0).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  disabledAt: timestamp('disabled_at', { withTimezone: true }),
+  ...timestamps,
+});
+
+export const discountRedemptions = pgTable(
+  'discount_redemptions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    discountCodeId: uuid('discount_code_id')
+      .notNull()
+      .references(() => discountCodes.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    redeemedAt: timestamp('redeemed_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    oneRedemptionPerUser: uniqueIndex('discount_redemptions_code_user_uq').on(
+      table.discountCodeId,
+      table.userId,
+    ),
   }),
 );

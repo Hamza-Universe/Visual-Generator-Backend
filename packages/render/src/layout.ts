@@ -482,7 +482,6 @@ export const resolveLayout = (request: LayoutRequest): LayoutResult => {
     targetIds.push(id);
   }
   targetIds.sort((a, b) => indexOf(a) - indexOf(b));
-  const targetSet = new Set(targetIds);
 
   // Connectors (instances carrying the full reference pair) are derived
   // geometry: excluded from direct arrangement, re-anchored to their final

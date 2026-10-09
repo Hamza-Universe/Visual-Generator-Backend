@@ -14,7 +14,6 @@ import {
   applyScenePlan,
   fetchSceneDocument,
   validateScenePlan,
-  type AIPlanDefinition,
   type PlanIssue,
 } from './apply.js';
 import {

@@ -8,3 +8,5 @@ dist/
 .env.*.local
 spec.md
 spec_part_2.md
+# Local media/runtime storage (untracked; files remain on disk)
+**/storage/
